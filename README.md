@@ -1,80 +1,77 @@
-# Bleach vs Naruto 3.0 • Room Online
+# Bleach vs Naruto 3.0 tiếng Việt · Room Online
 
-Bản mod trình duyệt cho hai người chơi Bleach vs Naruto 3.0. Chủ phòng chạy game gốc bằng Ruffle. Người chơi P2 nhận hình ảnh và gửi phím về cùng một phiên game. Mod ưu tiên WebRTC (video 30 fps; điều khiển qua DataChannel) và tự chuyển sang truyền qua máy chủ web nếu kết nối trực tiếp không thành công. Phòng có ID 6 ký tự, dùng tối đa hai người và tự đóng khi P1 rời phòng. Không cần tài khoản.
+Tạo phòng, gửi ID Room 6 ký tự và chơi 1v1 trên hai trình duyệt. Chế độ mặc định chạy game trên máy P1. Có thể bật chế độ máy chạy trận riêng để P1 và P2 đều nhận hình và gửi phím tới cùng một phiên game trên máy thứ ba.
 
-## Chơi thử trên máy
+## Chạy trên máy tính
 
-1. Cài [Node.js 22 LTS trở lên](https://nodejs.org/) và [Git](https://git-scm.com/downloads).
-2. Giải nén. Mở Terminal hoặc PowerShell trong thư mục `bvn-room`.
-3. Chạy lần lượt:
+Cài Node.js 22 trở lên và Git. Giải nén ZIP, mở Terminal hoặc PowerShell trong thư mục `bvn-room` rồi chạy:
+
+```sh
+npm ci
+npm run setup
+npm start
+```
+
+Mở [http://localhost:3000](http://localhost:3000) bằng Chrome hoặc Edge. Lần đầu, `npm run setup` tải 293 tệp theo mã kiểm tra SHA-256, áp dụng bản Việt hóa và cài bản Ruffle đã ghim. Cần Internet khi lấy tài nguyên lần đầu. Các lần sau chỉ cần `npm start`.
+
+- **Đấu máy**. Tạo phòng ở chế độ **P1 chạy game** và chọn **Đấu máy** trong game. Khi chưa có người thứ hai, game chạy tại chỗ và chưa truyền hình.
+- **Đấu 1v1**. P1 chọn **P1 chạy game**, tạo phòng, gửi mã cho P2. P2 mở cùng URL và nhập mã. P1 chọn **Đấu đơn → Đấu 1v1** trong game. Hai bên dùng WASD và J/K/L/U/I/O trên máy mình. P1 bấm vào game trước khi dùng phím.
+- **Đấu lại khi lỗi**. Bấm **Khởi động lại trận** và xác nhận. Cùng ID Room, cả hai trở về menu game với phiên mới. Nếu chỉ mất hình, mở **Chẩn đoán trận đấu → Kết nối lại hình** để nối lại luồng và giữ engine đang chạy.
+- Khi mất kết nối với dịch vụ phòng, ghế được giữ tối đa 45 giây từ lúc máy chủ nhận biết kết nối đã đóng. Trang tự thử kết nối lại và có thể giữ ghế khi tải lại đúng tab. Nếu P1 tải lại trang ở chế độ **P1 chạy game**, game bắt đầu lại do engine cũ nằm trong tab đó. Nếu worker vẫn chạy, tải lại trang người chơi ở chế độ worker giữ phiên engine. Sau khi tab hoặc worker chạy game thực sự dừng, khởi động lại sẽ trở về menu.
+- Khi dùng **P1 chạy game**, chọn **Ưu tiên độ mượt** trên máy P1 để giảm giới hạn bitrate và độ phân giải truyền. **Cân bằng** là mặc định. Tùy chọn này chỉ tác động tới hình truyền.
+- Nhạc và hiệu ứng chạy trên máy chứa engine. P1 có nút tắt tiếng trong chế độ mặc định. Các luồng WebRTC và JPEG trong gói này truyền hình, vì vậy người xem từ xa chưa nghe âm thanh từ game.
+
+## Cập nhật Render Singapore
+
+1. Đưa **nội dung bên trong thư mục `bvn-room`** lên repository GitHub đang dùng. Thêm các tệp mới trong `public/` cùng với các tệp đã cập nhật. Giữ các tệp ẩn cấu hình nếu repository đang dùng chúng. Không cần tải lên ZIP, `node_modules`, hoặc tài nguyên sinh ra sau setup.
+2. Trong cùng Render Web Service, giữ vùng **Singapore** nếu đây là cấu hình hiện tại, và dùng một instance vì phòng được lưu trong bộ nhớ. Kiểm tra các giá trị bên dưới và triển khai commit mới.
+3. Hai người dùng chung URL HTTPS của Web Service. Nếu dùng reverse proxy riêng, bật WebSocket và giữ Host cho cả `/rooms` và `/frames`.
+
+| Mục | Giá trị |
+| --- | --- |
+| Build Command | `npm ci && npm run setup` |
+| Start Command | `npm start` |
+| Health Check Path | `/healthz` |
+| Cổng | `process.env.PORT`, mặc định 3000 khi chạy cục bộ |
+
+Để quay lại bản trước, triển khai lại commit GitHub trước khi cập nhật hoặc khôi phục nội dung từ ZIP gốc rồi triển khai lại. Một lần khởi động lại dịch vụ sẽ làm mất phòng đang lưu trong bộ nhớ.
+
+## Bật máy chạy trận riêng
+
+Máy chạy trận là một tiến trình Chrome hoặc Edge riêng. Có thể thử trên máy hiện tại bằng một cửa sổ riêng, hoặc chạy trên một máy thứ ba có sẵn. Render vẫn quản lý phòng, xác thực và chuyển tiếp tín hiệu. Một worker xử lý một trận tại một thời điểm. WebRTC được thử độc lập cho từng ghế, với JPEG qua Render làm đường dự phòng từ worker.
+
+1. Tạo một khóa ngẫu nhiên. Chạy lệnh sau ở terminal riêng và giữ kết quả kín.
 
    ```sh
-   npm ci
-   npm run setup
-   npm start
+   node -p "require('node:crypto').randomBytes(32).toString('hex')"
    ```
 
-4. Mở [http://localhost:3000](http://localhost:3000) bằng Chrome hoặc Edge trên máy tính. Có thể mở cửa sổ ẩn danh thứ hai để thử luồng vào phòng.
+2. Đặt khóa vào biến môi trường bí mật `ROOM_WORKER_SECRET` trên Render rồi triển khai lại. Nếu thử cục bộ, đặt biến cùng tên trước khi chạy `npm start`. Ví dụ Bash `export ROOM_WORKER_SECRET` sau khi đã gán giá trị, hoặc PowerShell `$env:ROOM_WORKER_SECRET = Read-Host 'Khóa worker'`. Chế độ mặc định vẫn chạy khi biến này để trống.
+3. Trên **máy chạy trận**, mở trang `/worker.html` trên cùng URL của dịch vụ, ví dụ [http://localhost:3000/worker.html](http://localhost:3000/worker.html) khi chạy tại chỗ. Nhập khóa ở đó và bấm **Kết nối**. Khi thấy **Đã kết nối. Đang chờ phòng**, để tab đó ở cửa sổ hoạt động và giữ máy thức. Người chơi chỉ mở trang chính.
+4. P1 chọn **Máy chạy trận riêng** rồi tạo phòng. P2 vào bằng ID Room. P1 dùng WASD và J để chọn **Đấu đơn → Đấu 1v1** trên hình nhận được. Cả hai gửi phím về worker theo ghế của mình.
+5. Nếu worker ngắt, mở lại trang worker và kết nối. Từ phòng đã tạo, bấm **Thử lại máy chạy trận** khi máy đã sẵn sàng. Phòng giữ chế độ worker. Để tắt worker, bấm **Ngắt kết nối** trên máy đó. Để vô hiệu hóa đăng ký worker trên dịch vụ, xóa `ROOM_WORKER_SECRET` và triển khai lại.
 
-Chỉ chạy `npm ci` và `npm run setup` ở lần cài đầu. Lệnh setup tải game 3.0 cùng các tài nguyên đã xác minh, áp dụng bản dịch, rồi cài bản Ruffle tương thích. Lần cài đầu cần Internet. Lần sau chạy `npm start`.
+WebRTC của worker thử phát tối đa 30 FPS với khung dựng khoảng 800 × 600 khi cửa sổ đủ rộng. JPEG dùng khung tối đa 640 × 480. Đây là giới hạn cấu hình. FPS thực và độ trễ phụ thuộc máy chạy trận, kết nối của từng ghế và phương thức truyền.
 
-## Đưa lên Internet
+## Biến cấu hình
 
-Máy chủ Node phục vụ cả trang web lẫn kênh phòng qua WebSocket. Để chơi từ hai mạng khác nhau, hai người cần mở **cùng một URL HTTPS** trỏ tới máy chủ đó.
-
-Ví dụ với [Render Web Service](https://render.com/docs/web-services):
-
-1. Đưa nội dung thư mục `bvn-room` lên một repository Git của bạn. Tạo Web Service từ repository đó, chọn môi trường **Node**.
-2. Điền **Build Command** là `npm ci && npm run setup` và **Start Command** là `npm start`. Đặt **Health Check Path** là `/healthz` nếu dùng kiểm tra sức khỏe. Chạy một instance vì phòng hiện lưu trong bộ nhớ.
-3. Mở URL HTTPS do dịch vụ cấp trên cả hai máy. Mỗi người chỉ cần trình duyệt, người chơi không phải cài Node hoặc Git nếu có sẵn URL này.
-
-Máy chủ hỗ trợ biến `PORT` (mặc định 3000) và có sẵn `Dockerfile` nếu bạn dùng dịch vụ khác. Nếu có reverse proxy, giữ nguyên Host và cho phép WebSocket ở đường dẫn `/rooms`.
-
-### Tùy chọn TURN cho WebRTC
-
-Chế độ truyền qua máy chủ web có độ trễ cao hơn; phiên bản tối ưu tự điều chỉnh khoảng 10–20 khung hình/giây và giảm độ phân giải JPEG tối đa còn 640 × 480 để tránh ứ đọng dữ liệu. Nếu muốn WebRTC có thêm đường truyền khi kết nối trực tiếp bị chặn, dùng [máy chủ TURN](https://webrtc.org/getting-started/turn-server) có hỗ trợ thông tin đăng nhập có thời hạn (ví dụ coturn với `use-auth-secret`). Đặt các biến bên dưới trên máy chủ web và khởi động lại.
-
-| Biến | Giá trị |
+| Biến | Công dụng |
 | --- | --- |
-| `TURN_URLS` | Một hoặc nhiều URL, cách nhau bằng dấu phẩy. Ví dụ `turn:turn.example.com:3478?transport=udp,turns:turn.example.com:5349?transport=tcp` |
-| `TURN_SECRET` | Giá trị `static-auth-secret` dùng chung với máy chủ coturn. Đặt trong phần biến bí mật của dịch vụ. |
-| `STUN_URLS` | Tùy chọn. Mặc định dùng `stun:stun.l.google.com:19302`. |
+| `PORT` | Cổng HTTP. Dịch vụ lắng nghe trên `0.0.0.0`. |
+| `ROOM_WORKER_SECRET` | Khóa worker tùy chọn, tối thiểu 32 byte. Đặt trong môi trường của dịch vụ và nhập tại trang worker. |
+| `STUN_URLS` | Danh sách URL STUN, cách nhau bằng dấu phẩy. Mặc định `stun:stun.l.google.com:19302`. |
+| `TURN_URLS` | Danh sách URL TURN tùy chọn, cách nhau bằng dấu phẩy. |
+| `TURN_SECRET` | Khóa xác thực dùng chung với TURN hỗ trợ thông tin đăng nhập có thời hạn. Bắt buộc nếu đặt `TURN_URLS`. |
+| `BVN_ASSET_DIR` | Thư mục tùy chọn chứa các tài nguyên gốc đúng mã kiểm tra cho bước setup. Setup vẫn lấy bản Ruffle đã ghim. |
 
-## Bản giảm giật cho Render Singapore
+Xem `.env.example` để biết tên biến. Node đọc biến được truyền từ môi trường. Khi muốn đọc một tệp môi trường cục bộ, có thể chạy `node --env-file=.env server.mjs` sau khi tạo tệp `.env`. Giữ khóa worker và khóa TURN ngoài repository.
 
-- **Giữ nguyên:** nội dung game 3.0, bản dịch, tạo/vào phòng bằng ID 6 ký tự, bộ phím và URL trên Render khi cập nhật cùng Web Service.
-- **Không dùng Socket.IO:** máy chủ dùng gói `ws` cho phòng/chuyển tiếp tín hiệu WebRTC. Không phải thêm `socket.io` hoặc Google Cloud API.
-- **Ưu tiên WebRTC trực tiếp:** trước đây P1 chờ tối đa 8 giây rồi thường chuyển sang chuyển tiếp JPEG qua Render; hiện chờ tối đa khoảng 25 giây sau khi tạo offer (P2 tối đa 35 giây), để tránh fallback quá sớm. P2 cũng có thể yêu cầu chuyển sang dự phòng nếu kết nối thất bại.
-- **Dữ liệu điều khiển:** kênh trực tiếp ưu tiên độ trễ thấp (unordered/unreliable), gửi trạng thái phím định kỳ 250 ms với số thứ tự để hạn chế kẹt phím. Bấm/thả phím vẫn được gửi ngay lập tức.
-- **Giảm tải hình:** WebRTC truyền màn hình P1 tối đa 30 fps thay vì 60 fps, có giới hạn bitrate mục tiêu 1,6 Mbps khi trình duyệt hỗ trợ. Chế độ JPEG dự phòng tự giảm tốc độ truyền nếu mạng bận, không xếp hàng các hình cũ.
-- **Hiển thị trong phòng:** `WebRTC trực tiếp` hoặc `Dự phòng qua Render`, kèm RTT đo được bằng WebRTC DataChannel (trực tiếp) hoặc WebSocket tới Render (dự phòng). RTT không bao gồm toàn bộ độ trễ dựng hình và mã hóa video.
-- **Nếu luôn ở chế độ dự phòng:** cần kiểm tra NAT/UDP và cân nhắc TURN; thay hosting một mình không bảo đảm hết lag. Nhớ để Web Service một instance và chạy ở Singapore nếu người chơi ở Việt Nam.
+## Chẩn đoán và tổ chức đấu
 
-> Lưu ý: game Flash chạy và xử lý va chạm **trên trình duyệt của P1**; P2 xem luồng hình ảnh và gửi phím từ xa. Đây không phải hai máy chạy hai bản game đồng bộ rollback. Không thể bảo đảm mượt tuyệt đối trên mọi mạng. Bản mod chỉ mở tối đa 2 người trong một phòng; **chưa** có hệ thống lịch thi đấu, đăng ký 32 người hoặc khán giả.
+- Mở **Chẩn đoán trận đấu** trong phòng để xem FPS luồng, kích thước hình và tình trạng nhận khung. RTT trực tiếp đo trên kênh WebRTC. RTT qua Render đo đường tới dịch vụ phòng. Độ trễ từ nhấn phím đến hình là phép đo riêng.
+- **Nghi bị treo** là cảnh báo khi khung đã từng thay đổi, sau đó giữ nguyên qua nhiều lần thử điều khiển. **Luồng chưa có khung** là tín hiệu từ đường hình. **Ruffle tạm dừng** phản ánh trạng thái phát của trình giả lập. Một số menu tĩnh và trạng thái pause bên trong SWF có thể giống nhau ở cấp độ khung hình.
+- Bấm **Tải log chẩn đoán** để lấy các sự kiện gần nhất. Khi gửi báo lỗi, ghi thêm tên hai nhân vật, bản đồ, phím hoặc combo, đang đấu máy hay online, nhạc có dừng không và thao tác đã thử. Có thể xem Console của trình duyệt để lấy lỗi chi tiết từ Ruffle, và xem log Render để kiểm tra dịch vụ phòng.
+- Đấu loại trực tiếp 32 người có 31 trận khi không có trận tranh hạng ba. Tổ chức từng trận bằng mã phòng riêng, mỗi phòng hai ghế. Lịch thi đấu và kết quả quản lý bên ngoài game.
+- Kiểm tra giao thức tại chỗ sau `npm ci` bằng `node --test tests/rooms.test.mjs`. Kết quả kiểm thử và các giới hạn còn lại nằm trong `BAO_CAO_KIEM_THU.md`.
 
-### Cập nhật Web Service Render đang dùng
-
-1. Giải nén ZIP, vào **thư mục `bvn-room`**. Đưa **các file bên trong** lên repository GitHub cũ, ghi đè `server.mjs`, `public/client.js`, `public/index.html`, `public/style.css`, `README.md`, giữ nguyên các file khác.
-2. Vẫn sử dụng Build Command: `npm ci && npm run setup`; Start Command: `npm start` và Health Check Path: `/healthz`.
-3. Chờ Render Deploy xong. Mở lại link Render cũ, dùng **Ctrl+Shift+R** hoặc **Cmd+Shift+R** trên Mac để tải mới trang và JavaScript.
-4. Dùng hai mạng khác nhau tạo/vào phòng; quan sát mục kết nối. Nếu hiển thị `Dự phòng qua Render`, chất lượng có thể thấp hơn WebRTC trực tiếp.
-
-**Vì game SWF/Ruffle không được đóng gói trong ZIP**, lệnh `npm run setup` vẫn cần Internet để tải tài nguyên. File ZIP ban đầu cũng có cách cài đặt này.
-
-## Cách vào trận
-
-1. P1 bấm **Tạo phòng mới**, sao chép **ID Room** và gửi cho P2.
-2. P2 mở cùng trang, nhập ID và bấm **Vào phòng**.
-3. Khi đã kết nối, P1 bấm vào màn hình game để lấy tiêu điểm bàn phím, nhấn **J** ở màn hình tiêu đề, chọn **Đấu đơn → Đấu 1v1** bằng **W/S** và **J**. Hai người chọn nhân vật và đấu.
-
-| Hành động | Phím trên mỗi máy |
-| --- | --- |
-| Di chuyển | W A S D |
-| Đánh, nhảy, lướt | J K L |
-| Chiêu phụ, tuyệt kỹ, gọi trợ thủ | U I O |
-
-P1 giữ tab game mở trong khi chơi. P2 nhận hình ảnh và điều khiển từ xa. Âm thanh game phát ở máy P1. Khi P2 rời phòng, P1 có thể mời lại bằng cùng mã.
-
-## Nguồn
-
-Game gốc thuộc Jian và 5DPLAY Game Studio. Bước setup tải bản Flash 3.0 từ [BVNPlay](https://bvnplay.online/games/bleach-vs-naruto-3-0/) hoặc [GamesLol](https://en.gameslol.net/bleach-vs-naruto-3-0-1309.html), có [FlashGa.me](https://flashga.me/bleach-vs-naruto-3-0.html) làm nguồn dự phòng cho tài nguyên phụ. Trình chạy Flash là [Ruffle](https://ruffle.rs/), lấy từ commit đã cố định của [dự án DuyOrbit](https://github.com/DuyOrbit/naruto-vs-bleach-online/tree/222ba8f8f08b379509bde031a116108e1211c18a). File ZIP chứa mã phòng đấu, bản dịch, phông chữ và cấu hình chạy.
+Game gốc của Jian và 5DPLAY Game Studio.

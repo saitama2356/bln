@@ -1,174 +1,90 @@
+import { startGame, p2Keys, remoteKeys, validKeys } from './engine.js'
+import { capVideo, frameLink, socketFor, streamJpeg } from './media.js'
+
 const $ = id => document.getElementById(id)
-const guestKeys = {
-  KeyW: ['ArrowUp', 'ArrowUp', 38], KeyA: ['ArrowLeft', 'ArrowLeft', 37],
-  KeyS: ['ArrowDown', 'ArrowDown', 40], KeyD: ['ArrowRight', 'ArrowRight', 39],
-  KeyJ: ['Numpad1', '1', 97], KeyK: ['Numpad2', '2', 98], KeyL: ['Numpad3', '3', 99],
-  KeyU: ['Numpad4', '4', 100], KeyI: ['Numpad5', '5', 101], KeyO: ['Numpad6', '6', 102],
-}
 const held = new Set()
-const remoteHeld = new Set()
-let socket, role, player, enginePromise, rufflePromise, peer, pending = false
-let relay = null
-let engineLaunch = 0
-let serverRtt = null
-let peerRtt = null
-let signalPingTimer = null
-let inputSequence = 0
-
-// Video is streamed from P1's Ruffle canvas; the game simulation itself runs only on P1.
-// Prefer WebRTC. JPEG relay is a bandwidth-conscious last resort on Render Free.
-const DIRECT_TIMEOUT_MS = 25000
-const SIGNAL_PING_MS = 3000
-const INPUT_RESYNC_MS = 250
-
-function networkInfo() {
-  const panel = $('network-info')
-  if (!role || (!peer && !relay)) {
-    panel.hidden = true
-    return
-  }
-  panel.hidden = false
-  const direct = Boolean(peer?.input?.readyState === 'open' &&
-    peer?.pc?.connectionState === 'connected')
-  const mode = relay ? 'Dự phòng qua Render' : direct ? 'WebRTC trực tiếp' : 'Đang thiết lập…'
-  $('network-mode').textContent = mode
-  const rtt = relay ? serverRtt : direct ? peerRtt : null
-  $('network-ping').textContent = rtt == null ? 'Đang đo' : `${Math.round(rtt)} ms`
-  $('network-info').dataset.mode = relay ? 'relay' : direct ? 'direct' : 'connecting'
+const log = []
+let socket, role, room, frameChannel, engine, peer, relay
+let pending = false, reconnectUntil = 0, reconnectTimer
+let signalPing, serverRtt, peerRtt, inputSequence = 0, engineState
+let lastInput = 0
+const applyRemote = remoteKeys(() => engine, p2Keys)
+const video = $('remote')
+const canvas = $('relay-screen')
+const engineLabels = {
+  ready: 'Đang chạy', running: 'Đang chạy', suspect: 'Nghi bị treo',
+  renderer: 'Bộ dựng hình gặp lỗi', error: 'Game gặp lỗi Ruffle', paused: 'Ruffle tạm dừng',
 }
-
-function startSignalPing(connection) {
-  clearInterval(signalPingTimer)
-  serverRtt = null
-  signalPingTimer = setInterval(() => {
-    if (socket === connection && connection.readyState === WebSocket.OPEN) {
-      send({ type: 'ping', t: performance.now() })
-    }
-  }, SIGNAL_PING_MS)
-  if (connection.readyState === WebSocket.OPEN) send({ type: 'ping', t: performance.now() })
+const profile = () => $('profile').value
+const central = () => room?.mode === 'central'
+const viewer = () => central() || role === 'guest'
+const send = message => {
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
-
-// Periodic snapshots repair rare lost/out-of-order input messages on the fast DataChannel.
-// They also prevent stuck keys after a short connection disturbance.
-setInterval(() => {
-  if (role === 'guest') sendKeys()
-}, INPUT_RESYNC_MS)
-
+const match = (type, data = {}) => {
+  if (room) send({ type, round: room.round, ...data })
+}
+function record(event, detail = '') {
+  log.push({ at: new Date().toISOString(), mode: room?.mode, event, detail: String(detail).slice(0, 300) })
+  if (log.length > 150) log.shift()
+}
 function status(message, tone = '') {
   $('status').textContent = message
   $('status').dataset.tone = tone
+  record('trạng thái', message)
 }
 function busy(value) {
   pending = value
   $('create').disabled = value
   $('join').querySelector('button').disabled = value
 }
-function view(next) {
-  $('placeholder').hidden = Boolean(next)
-  $('engine').hidden = next !== 'host'
-  $('remote').hidden = next !== 'guest'
+function view() {
+  $('placeholder').hidden = Boolean(role)
+  $('engine').hidden = !role || viewer()
+  video.hidden = !role || !viewer() || Boolean(relay)
+  canvas.hidden = !role || !viewer() || !relay
+  $('sound-row').hidden = role !== 'host' || viewer()
 }
-function scriptRuffle() {
-  if (window.RufflePlayer?.newest) return Promise.resolve()
-  return rufflePromise ??= new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = '/ruffle/ruffle.js'
-    script.onload = resolve
-    script.onerror = () => {
-      script.remove()
-      rufflePromise = null
-      reject(new Error('Chưa tải được Ruffle. Trên máy chủ, hãy chạy npm run setup.'))
+function networkInfo() {
+  $('network-info').hidden = !role
+  $('repair').hidden = !viewer() || (!peer && !relay)
+  if (!role) return
+  const direct = peer?.pc?.connectionState === 'connected' && peer?.input?.readyState === 'open'
+  const mode = relay ? 'JPEG qua Render' : direct ? 'WebRTC' : peer ? 'Đang kết nối' : 'Chưa có luồng online'
+  $('network-mode').textContent = (central() ? 'Máy chạy trận · ' : '') + mode
+  $('network-info').dataset.mode = relay ? 'relay' : direct ? 'direct' : 'connecting'
+  const rtt = direct ? peerRtt : serverRtt
+  $('network-ping').textContent = rtt == null ? 'Chưa đo' : Math.round(rtt) + ' ms' + (direct ? '' : ' tới Render')
+  $('engine-status').textContent = engineLabels[engineState] || 'Chưa có tín hiệu từ game'
+}
+function reportEngine(state, detail) {
+  engineState = state
+  record('engine ' + state, detail)
+  networkInfo()
+  if (['suspect', 'renderer', 'error'].includes(state)) {
+    status(engineLabels[state] + '. Có thể dùng nút Khởi động lại trận.', 'error')
+  }
+}
+function launchEngine() {
+  engine?.stop()
+  engineState = undefined
+  const game = startGame($('engine'), (state, detail) => {
+    reportEngine(state, detail)
+    match('engine-status', { state })
+    if (state === 'ready') {
+      game.mute($('mute-game').checked)
+      if (!peer && !relay) status('Game đã sẵn sàng. Đang chờ P2 vào phòng.')
     }
-    document.head.append(script)
   })
-}
-
-async function startEngine() {
-  const launch = ++engineLaunch
-  await scriptRuffle()
-  if (role !== 'host' || launch !== engineLaunch) return
-  const instance = window.RufflePlayer.newest().createPlayer()
-  player = instance
-  instance.config = {
-    autoplay: 'on', unmuteOverlay: 'hidden', splashScreen: false,
-    preferredRenderer: 'canvas', allowScriptAccess: false,
-    backgroundExecutionMode: 'mainThread',
-    fontSources: ['/fonts/DejaVuSans.ttf', '/fonts/DejaVuSans-Bold.ttf'],
-    defaultFonts: { sans: ['DejaVu Sans'] },
-  }
-  $('engine').replaceChildren(instance)
-  await instance.ruffle().load({ url: '/game.swf' })
-  for (let step = 0; step < 100 && instance === player; step++) {
-    const canvas = instance.shadowRoot?.querySelector('canvas')
-    if (canvas) return canvas
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  if (instance === player) throw new Error('Ruffle chưa mở được màn hình game.')
-}
-
-function send(message) {
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
-}
-function closePeer() {
-  releaseLocal()
-  applyRemote([])
-  if (relay) clearTimeout(relay.timer)
-  relay = null
-  peerRtt = null
-  const screen = $('relay-screen')
-  screen.getContext('2d').clearRect(0, 0, screen.width, screen.height)
-  screen.hidden = true
-  if (peer) {
-    const old = peer
-    peer = null
-    clearTimeout(old.timeout)
-    clearInterval(old.pingTimer)
-    old.pc?.close()
-    old.media?.getTracks().forEach(track => track.stop())
-  }
-  $('remote').srcObject = null
-  networkInfo()
-}
-function exitRoom(message, tone) {
-  closePeer()
-  role = null
-  player = null
-  engineLaunch += 1
-  enginePromise = null
-  $('engine').replaceChildren()
-  $('entry').hidden = false
-  $('room').hidden = true
-  view(null)
-  busy(false)
-  status(message, tone)
-  networkInfo()
-}
-
-function changeGameKey(code, down) {
-  const [flashCode, key, keyCode] = guestKeys[code]
-  const canvas = player?.shadowRoot?.querySelector('canvas')
-  if (!canvas) return
-  const event = new KeyboardEvent(down ? 'keydown' : 'keyup', {
-    code: flashCode, key, location: flashCode.startsWith('Numpad') ? 3 : 0,
-    bubbles: true, cancelable: true, composed: true,
-  })
-  Object.defineProperties(event, { keyCode: { value: keyCode }, which: { value: keyCode } })
-  canvas.dispatchEvent(event)
-}
-function applyRemote(keys) {
-  const next = new Set(keys.filter(key => Object.hasOwn(guestKeys, key)))
-  for (const key of remoteHeld) if (!next.has(key)) changeGameKey(key, false)
-  for (const key of next) if (!remoteHeld.has(key)) changeGameKey(key, true)
-  remoteHeld.clear()
-  next.forEach(key => remoteHeld.add(key))
+  engine = game
 }
 function sendKeys() {
-  if (relay) {
-    send({ type: 'input', round: relay.round, keys: [...held] })
-  } else if (peer?.input?.readyState === 'open' && peer.input.bufferedAmount < 4096) {
-    // Unreliable/unordered DataChannel: snapshots + a sequence number ensure the
-    // newest input wins, instead of being delayed behind retransmissions.
-    peer.input.send(JSON.stringify({ type: 'keys', seq: ++inputSequence, keys: [...held] }))
+  if (!viewer() || !room) return
+  const payload = { seq: ++inputSequence, keys: [...held] }
+  if (relay) match('input', payload)
+  else if (peer?.input?.readyState === 'open') {
+    if (peer.input.bufferedAmount < 16384) peer.input.send(JSON.stringify({ type: 'keys', ...payload }))
+    else pairFailed(peer, 'Kênh phím bị nghẽn')
   }
 }
 function releaseLocal() {
@@ -176,231 +92,156 @@ function releaseLocal() {
   held.clear()
   sendKeys()
 }
-
-function updatePair(current) {
+function receiveKeys(message, current) {
+  if (!Number.isSafeInteger(message.seq) || message.seq <= (current.lastSeq || 0) || !validKeys(message.keys)) return
+  current.lastSeq = message.seq
+  lastInput = performance.now()
+  applyRemote(message.keys)
+}
+function closePeer() {
+  const old = peer
+  peer = null
+  clearTimeout(old?.timeout)
+  if (old?.videoCallback != null) video.cancelVideoFrameCallback(old.videoCallback)
+  old?.pc?.close()
+  old?.media?.getTracks().forEach(track => track.stop())
+  video.srcObject = null
+  peerRtt = null
+}
+function closeMedia() {
+  releaseLocal()
+  applyRemote([])
+  closePeer()
+  relay?.stop?.()
+  relay = null
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height)
+  view()
+  networkInfo()
+}
+function saved(value) {
+  try {
+    if (value === undefined) return JSON.parse(sessionStorage.getItem('bvn-seat'))
+    if (value === null) sessionStorage.removeItem('bvn-seat')
+    else sessionStorage.setItem('bvn-seat', JSON.stringify(value))
+  } catch { /* Storage may be unavailable in privacy mode. */ }
+}
+function exitRoom(message, tone) {
+  clearTimeout(reconnectTimer)
+  reconnectUntil = 0
+  closeMedia()
+  frameChannel?.stop()
+  frameChannel = null
+  role = room = engineState = null
+  engine?.stop()
+  engine = null
+  saved(null)
+  $('entry').hidden = false
+  $('room').hidden = true
+  $('reset').disabled = false
+  $('retry-worker').hidden = true
+  view()
+  busy(false)
+  status(message, tone)
+  networkInfo()
+}
+function pairFailed(current, reason) {
+  if (peer !== current || current.fallbackRequested) return
+  current.fallbackRequested = true
+  clearTimeout(current.timeout)
+  applyRemote([])
+  record('WebRTC → JPEG', reason)
+  match('relay')
+  status('Đang chuyển sang truyền hình dự phòng…')
+}
+function pairReady(current) {
   if (peer !== current || current.input?.readyState !== 'open' ||
       current.pc.connectionState !== 'connected') return
   clearTimeout(current.timeout)
-  current.timeout = null
-  status(role === 'host' ? 'P2 đã kết nối trực tiếp. Bấm vào game rồi chọn Đấu đơn → Đấu 1v1.' :
-    'Đã kết nối trực tiếp. Chờ P1 chọn Đấu đơn → Đấu 1v1 rồi dùng bộ phím ở dưới.', 'ok')
+  if (!current.connected) {
+    current.connected = true
+    status('Đã kết nối WebRTC. P1 chọn Đấu đơn → Đấu 1v1.', 'ok')
+    if (!viewer()) capVideo(current.sender, profile() === 'smooth').catch(error => record('giới hạn video', error.name))
+  }
   networkInfo()
 }
 function wireInput(current, input) {
   current.input = input
-  input.onopen = () => {
-    updatePair(current)
-    current.pingTimer = setInterval(() => {
-      if (peer === current && input.readyState === 'open' && input.bufferedAmount < 4096) {
-        input.send(JSON.stringify({ type: 'ping', t: performance.now() }))
-      }
-    }, SIGNAL_PING_MS)
-  }
-  input.onclose = () => {
-    if (peer !== current) return
-    applyRemote([])
-    held.clear()
-    pairFailed(current, new Error('Kênh điều khiển đã ngắt'))
-  }
+  input.onopen = () => pairReady(current)
+  input.onclose = () => pairFailed(current, 'Kênh phím đã ngắt')
   input.onmessage = ({ data }) => {
-    if (peer !== current || typeof data !== 'string' || data.length > 180) return
-    let message
-    try { message = JSON.parse(data) } catch { return }
-    if (!message || typeof message !== 'object') return
-    if (message.type === 'ping' && Number.isFinite(message.t) && input.readyState === 'open') {
-      if (input.bufferedAmount < 4096) input.send(JSON.stringify({ type: 'pong', t: message.t }))
-      return
-    }
-    if (message.type === 'pong' && Number.isFinite(message.t)) {
-      const elapsed = performance.now() - message.t
-      if (elapsed >= 0 && elapsed < 60000) {
-        peerRtt = elapsed
-        networkInfo()
-      }
-      return
-    }
-    if (role !== 'host' || message.type !== 'keys' || !Number.isSafeInteger(message.seq) ||
-        message.seq <= (current.lastSeq || 0) || !Array.isArray(message.keys) ||
-        message.keys.length > 10 || !message.keys.every(key => Object.hasOwn(guestKeys, key))) return
-    current.lastSeq = message.seq
-    applyRemote(message.keys)
+    if (peer !== current || typeof data !== 'string' || data.length > 220) return
+    let msg
+    try { msg = JSON.parse(data) } catch { return }
+    if (msg?.type === 'ping' && Number.isFinite(msg.t) && input.readyState === 'open') {
+      if (input.bufferedAmount < 4096) input.send(JSON.stringify({ type: 'pong', t: msg.t }))
+    } else if (msg?.type === 'pong' && Number.isFinite(msg.t) && performance.now() - msg.t < 60000) {
+      peerRtt = Math.max(0, performance.now() - msg.t)
+      networkInfo()
+    } else if (!viewer() && msg?.type === 'keys') receiveKeys(msg, current)
   }
 }
-function pairFailed(current, error) {
-  if (peer !== current || current.fallbackRequested) return
-  current.fallbackRequested = true
+function startDeadline(current, ms = 25000) {
   clearTimeout(current.timeout)
-  console.info('WebRTC unavailable:', error.message)
-  // Either side can request relay; otherwise P2 could wait forever if P1
-  // established ICE but P2's media/data channel did not come up.
-  send({ type: 'relay', round: current.round })
-  status('Đang chuyển sang kết nối dự phòng qua Render…')
-  networkInfo()
-}
-function sendSignal(current, payload) {
-  if (peer === current) send({ type: 'signal', round: current.round, ...payload })
+  current.timeout = setTimeout(() => pairFailed(current, 'Hết thời gian chờ WebRTC'), ms)
 }
 async function startPair({ round, iceServers }) {
-  closePeer()
-  status('Đang kết nối hình ảnh và điều khiển…')
-  const current = { round, candidates: [], messages: Promise.resolve(), lastSeq: 0 }
-  peer = current
+  closeMedia()
+  room.round = round
   inputSequence = 0
-  peerRtt = null
+  const current = { round, candidates: [], messages: Promise.resolve() }
+  peer = current
+  $('retry-worker').hidden = true
+  status(central() ? 'Đang chờ máy chạy trận và kết nối hình ảnh…' : 'Đang kết nối hình ảnh và điều khiển…')
   networkInfo()
-  let pc
   try {
-    pc = new RTCPeerConnection({ iceServers })
+    const pc = new RTCPeerConnection({ iceServers })
     current.pc = pc
-  } catch (error) {
-    pairFailed(current, error)
-    return
-  }
-  // The original 8s limit caused premature JPEG relay while Ruffle was loading.
-  // Both peers now have a timeout; the offer gets its own timer after loading.
-  if (role === 'guest') {
-    current.timeout = setTimeout(() => pairFailed(current, new Error('Hết thời gian chờ WebRTC')), DIRECT_TIMEOUT_MS + 10000)
-  }
-  pc.onicecandidate = ({ candidate }) => {
-    if (candidate) sendSignal(current, { candidate: candidate.toJSON() })
-  }
-  pc.onconnectionstatechange = () => {
-    if (peer !== current) return
-    if (pc.connectionState === 'failed') pairFailed(current, new Error('WebRTC kết nối thất bại'))
-    if (pc.connectionState === 'disconnected') {
-      releaseLocal()
-      applyRemote([])
-      status('Kết nối gián đoạn. Đang chờ khôi phục…')
-      clearTimeout(current.timeout)
-      current.timeout = setTimeout(() => pairFailed(current, new Error('Mất kết nối WebRTC')), 8000)
+    pc.onicecandidate = ({ candidate }) => {
+      if (peer === current && candidate) match('signal', { candidate: candidate.toJSON() })
     }
-    if (pc.connectionState === 'connected') updatePair(current)
-    networkInfo()
-    updatePair(current)
-  }
-  if (role === 'guest') {
-    pc.ondatachannel = ({ channel }) => wireInput(current, channel)
-    pc.ontrack = ({ streams }) => {
+    pc.onconnectionstatechange = () => {
       if (peer !== current) return
-      $('remote').srcObject = streams[0]
-      $('remote').play().catch(() => {
-        if (peer === current) status('Bấm vào khung game để phát hình.')
-      })
+      if (pc.connectionState === 'failed') pairFailed(current, 'ICE thất bại')
+      if (pc.connectionState === 'disconnected') {
+        releaseLocal()
+        applyRemote([])
+        current.connected = false
+        status('Kết nối gián đoạn. Đang chờ WebRTC khôi phục…')
+        startDeadline(current, 8000)
+      }
+      pairReady(current)
+      networkInfo()
     }
-    return
-  }
-
-  try {
-    const canvas = await enginePromise
+    if (viewer()) {
+      startDeadline(current, 60000)
+      pc.ondatachannel = ({ channel }) => wireInput(current, channel)
+      pc.ontrack = ({ streams }) => {
+        if (peer !== current) return
+        video.srcObject = streams[0]
+        current.presented = 0
+        const countFrame = () => {
+          if (peer !== current) return
+          current.presented++
+          current.videoCallback = video.requestVideoFrameCallback(countFrame)
+        }
+        if (video.requestVideoFrameCallback) current.videoCallback = video.requestVideoFrameCallback(countFrame)
+        video.play().catch(() => { if (peer === current) status('Bấm vào khung game để phát hình.') })
+      }
+      return
+    }
+    const source = await engine.ready
     if (peer !== current) return
-    // 30 fps relieves CPU/GPU pressure compared with the original 60 fps.
-    // The Ruffle game still updates locally at its normal speed.
-    current.media = canvas.captureStream(30)
-    for (const track of current.media.getTracks()) {
-      const sender = pc.addTrack(track, current.media)
-      if (track.kind === 'video') {
-        try {
-          const params = sender.getParameters()
-          if (params.encodings?.length) {
-            params.encodings[0].maxBitrate = 1_600_000
-            params.encodings[0].maxFramerate = 30
-            await sender.setParameters(params)
-          }
-        } catch (error) { console.info('Optional video bitrate limit unavailable:', error.message) }
-      }
-    }
-    wireInput(current, pc.createDataChannel('p2-controls', { ordered: false, maxRetransmits: 0 }))
-    const offer = await pc.createOffer()
-    await pc.setLocalDescription(offer)
-    sendSignal(current, { description: pc.localDescription })
-    current.timeout = setTimeout(() => pairFailed(current, new Error('Hết thời gian kết nối trực tiếp')), DIRECT_TIMEOUT_MS)
+    current.media = source.captureStream(30)
+    current.sender = pc.addTrack(current.media.getVideoTracks()[0], current.media)
+    wireInput(current, pc.createDataChannel('controls'))
+    await pc.setLocalDescription(await pc.createOffer())
+    if (peer !== current) return
+    match('signal', { description: pc.localDescription })
+    startDeadline(current)
   } catch (error) {
-    pairFailed(current, error)
+    pairFailed(current, error.message)
   }
 }
-
-async function startRelay(round) {
-  if (peer?.round !== round) return
-  closePeer()
-  const current = { round, working: false, delay: 65, stable: 0 }
-  relay = current
-  networkInfo()
-  if (role === 'guest') {
-    $('remote').hidden = true
-    $('relay-screen').hidden = false
-  } else {
-    const source = await enginePromise
-    if (relay !== current) return
-    const frame = document.createElement('canvas')
-    const context = frame.getContext('2d', { alpha: false })
-    const tick = () => {
-      if (relay !== current) return
-      const ws = socket
-      // Never build a queue of stale video frames. Input/control messages
-      // should remain responsive while using the server fallback.
-      if (!source?.width || !source?.height || ws?.readyState !== WebSocket.OPEN ||
-          ws.bufferedAmount > 96 * 1024) {
-        current.delay = Math.min(105, current.delay + 5)
-        current.stable = 0
-        current.timer = setTimeout(tick, current.delay)
-        return
-      }
-      const begin = performance.now()
-      const scale = Math.min(1, 640 / source.width, 480 / source.height)
-      const width = Math.max(1, Math.round(source.width * scale))
-      const height = Math.max(1, Math.round(source.height * scale))
-      if (frame.width !== width || frame.height !== height) {
-        frame.width = width
-        frame.height = height
-      }
-      context.drawImage(source, 0, 0, width, height)
-      frame.toBlob(blob => {
-        if (relay !== current) return
-        const slowEncode = performance.now() - begin > 55
-        if (blob && blob.size < 160 * 1024 && ws === socket &&
-            ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 96 * 1024) {
-          ws.send(blob)
-        }
-        if (slowEncode || ws.bufferedAmount > 64 * 1024) {
-          current.delay = Math.min(105, current.delay + 8)
-          current.stable = 0
-        } else if (++current.stable >= 16) {
-          // Gradually return towards 20 fps when the connection is healthy.
-          current.delay = Math.max(50, current.delay - 4)
-          current.stable = 0
-        }
-        current.timer = setTimeout(tick, Math.max(8, current.delay - (performance.now() - begin)))
-      }, 'image/jpeg', 0.46)
-    }
-    tick()
-  }
-  status(role === 'host' ? 'Đang dùng chế độ dự phòng qua Render. Chất lượng hình đã được tối ưu để giảm khựng.' :
-    'Đang dùng chế độ dự phòng qua Render. Nếu hình còn khựng, cần kiểm tra mạng hoặc TURN.', 'ok')
-  networkInfo()
-}
-
-async function paintFrame(blob) {
-  const current = relay
-  if (role !== 'guest' || !current || current.working) return
-  current.working = true
-  try {
-    const image = await createImageBitmap(blob)
-    if (relay === current) {
-      const canvas = $('relay-screen')
-      if (canvas.width !== image.width || canvas.height !== image.height) {
-        canvas.width = image.width
-        canvas.height = image.height
-      }
-      canvas.getContext('2d').drawImage(image, 0, 0)
-    }
-    image.close()
-  } catch {
-    // The next frame can still be drawn if this frame fails to decode.
-  } finally {
-    current.working = false
-  }
-}
-
 function receiveSignal(message) {
   const current = peer
   if (!current?.pc || current.round !== message.round) return
@@ -412,112 +253,166 @@ function receiveSignal(message) {
       for (const candidate of current.candidates.splice(0)) await pc.addIceCandidate(candidate)
       if (message.description.type === 'offer') {
         await pc.setLocalDescription(await pc.createAnswer())
-        sendSignal(current, { description: pc.localDescription })
+        if (peer !== current) return
+        match('signal', { description: pc.localDescription })
+        startDeadline(current)
       }
     } else if (message.candidate) {
       if (pc.remoteDescription) await pc.addIceCandidate(message.candidate)
-      else current.candidates.push(message.candidate)
+      else if (current.candidates.length < 64) current.candidates.push(message.candidate)
     }
-  }).catch(error => pairFailed(current, error))
+  }).catch(error => pairFailed(current, error.message))
 }
-
-function receive({ data }) {
-  if (data instanceof Blob) {
-    paintFrame(data)
-    return
+async function startRelay(round) {
+  if (room?.round !== round || relay?.round === round) return
+  closeMedia()
+  const current = { round, since: performance.now(), sent: 0, received: 0 }
+  relay = current
+  view()
+  networkInfo()
+  status('Đang dùng hình JPEG qua Render.', 'ok')
+  if (viewer()) return
+  try {
+    const source = await engine.ready
+    if (relay !== current) return
+    current.stop = streamJpeg(source, round, () => frameChannel, profile, (width, height, elapsed) => {
+      current.sent++
+      Object.assign(current, { width, height, encodeMs: elapsed })
+    })
+  } catch (error) {
+    if (relay === current) status(error.message, 'error')
   }
+}
+async function paintFrame(round, blob) {
+  const current = relay
+  if (!viewer() || !current || current.round !== round) return
+  current.next = blob
+  if (current.drawing) return
+  current.drawing = true
+  while (relay === current && current.next) {
+    const frame = current.next
+    current.next = null
+    try {
+      const image = await createImageBitmap(frame)
+      if (relay === current) {
+        if (canvas.width !== image.width || canvas.height !== image.height) {
+          canvas.width = image.width
+          canvas.height = image.height
+        }
+        canvas.getContext('2d').drawImage(image, 0, 0)
+        current.received++
+        current.lastFrame = performance.now()
+      }
+      image.close()
+    } catch (error) { record('giải mã JPEG', error.name) }
+  }
+  current.drawing = false
+}
+function receive({ data }) {
   let message
   try { message = JSON.parse(data) } catch { return }
   if (!message || typeof message !== 'object') return
+  const { round } = message
+  if (round != null && room && round < room.round) return
   switch (message.type) {
-    case 'pong': {
-      if (Number.isFinite(message.t)) {
-        const elapsed = performance.now() - message.t
-        if (elapsed >= 0 && elapsed < 60000) {
-          serverRtt = elapsed
-          networkInfo()
-        }
-      }
-      break
-    }
+    case 'pong':
+      if (Number.isFinite(message.t)) serverRtt = performance.now() - message.t
+      return networkInfo()
     case 'room': {
+      clearTimeout(reconnectTimer)
+      reconnectUntil = 0
+      const same = room?.id === message.id && role === message.role
+      room = { id: message.id, round, mode: message.mode }
       role = message.role
+      saved({ type: 'resume', id: message.id, token: message.resume })
+      frameChannel?.stop()
+      frameChannel = frameLink(message.frames, paintFrame, ready => record('WebSocket hình', ready ? 'sẵn sàng' : 'gián đoạn'))
       $('entry').hidden = true
       $('room').hidden = false
       $('role').textContent = role === 'host' ? 'P1 · CHỦ PHÒNG' : 'P2 · KHÁCH'
       $('room-code').textContent = message.id
+      $('profile-row').hidden = viewer()
       busy(false)
-      view(role)
-      networkInfo()
-      if (role === 'host') {
+      view()
+      if (!viewer() && (!same || !engine)) {
         status('Đang mở game. Gửi ID Room cho bạn của bạn.')
-        enginePromise = startEngine()
-        const loading = enginePromise
-        loading.then(() => {
-          if (role === 'host' && enginePromise === loading && !peer) {
-            status('Game đã sẵn sàng. Đang chờ P2 vào phòng.')
-          }
-        }).catch(error => {
-          if (enginePromise === loading) status(error.message, 'error')
-        })
-      }
-      break
+        launchEngine()
+      } else status('Đang chờ hai ghế và kết nối trận.')
+      return networkInfo()
     }
-    case 'paired':
-      startPair(message).catch(error => {
-        console.warn(error)
-        status('Trình duyệt chưa mở được WebRTC.', 'error')
-      })
-      break
-    case 'signal':
-      receiveSignal(message)
-      break
-    case 'relay':
-      startRelay(message.round).catch(error => status(error.message, 'error'))
-      break
+    case 'paired': return startPair(message)
+    case 'signal': return receiveSignal(message)
+    case 'relay': return startRelay(round)
     case 'input':
-      if (role === 'host' && relay?.round === message.round) applyRemote(message.keys)
-      break
+      if (!viewer() && relay?.round === round) receiveKeys(message, relay)
+      return
+    case 'engine-status':
+      if (room?.round === round && viewer()) reportEngine(message.state)
+      return
+    case 'reset':
+      room.round = round
+      closeMedia()
+      $('reset').disabled = false
+      engineState = undefined
+      status('Đang khởi động lại trận với cùng ID Room.')
+      if (!viewer()) launchEngine()
+      return
+    case 'interrupted':
     case 'vacant':
-      closePeer()
-      status('P2 đã rời phòng. Bạn có thể gửi lại cùng ID Room.')
-      break
-    case 'closed':
-      exitRoom('P1 đã đóng phòng.', 'error')
-      break
+      closeMedia()
+      status(message.type === 'vacant' ? 'P2 đã rời phòng. Có thể gửi lại cùng mã.' :
+        'Một người mất kết nối. Ghế được giữ tối đa 45 giây.')
+      return
+    case 'worker-unavailable':
+      room.round = round
+      closeMedia()
+      $('retry-worker').hidden = false
+      status('Máy chạy trận chưa sẵn sàng. Hãy thử lại khi worker đã kết nối.', 'error')
+      return
+    case 'closed': return exitRoom('P1 đã đóng phòng.', 'error')
     case 'error':
+      if (reconnectUntil > Date.now()) {
+        if (message.message.includes('chưa sẵn sàng')) return retry()
+        return exitRoom(message.message, 'error')
+      }
       busy(false)
       status(message.message, 'error')
-      break
   }
 }
-
+function retry() {
+  clearTimeout(reconnectTimer)
+  const seat = saved()
+  if (!seat || Date.now() >= reconnectUntil) return exitRoom('Mất kết nối phòng. Hãy tạo hoặc vào phòng lại.', 'error')
+  reconnectTimer = setTimeout(() => request(seat), 1000)
+}
 function request(message) {
-  if (pending) return
+  if (pending && message.type !== 'resume') return
   busy(true)
   if (socket?.readyState === WebSocket.OPEN) return send(message)
-  status('Đang kết nối máy chủ phòng…')
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const connection = new WebSocket(protocol + '//' + location.host + '/rooms')
+  if (socket?.readyState === WebSocket.CONNECTING) return
+  status(message.type === 'resume' ? 'Đang kết nối lại đúng ghế…' : 'Đang kết nối máy chủ phòng…')
+  const connection = socketFor('/rooms')
   socket = connection
-  connection.onmessage = receive
+  connection.onmessage = event => { if (connection === socket) receive(event) }
   connection.onopen = () => {
+    if (connection !== socket) return
     send(message)
-    startSignalPing(connection)
-  }
-  connection.onerror = () => {
-    if (connection === socket) status('Lỗi kết nối máy chủ. Kiểm tra mạng và Render.', 'error')
+    const ping = () => send({ type: 'ping', t: performance.now() })
+    ping()
+    signalPing = setInterval(ping, 3000)
   }
   connection.onclose = () => {
     if (connection !== socket) return
-    clearInterval(signalPingTimer)
-    signalPingTimer = null
-    socket = null
-    exitRoom('Mất kết nối máy chủ phòng. Thử tạo hoặc vào phòng lại.', 'error')
+    clearInterval(signalPing)
+    serverRtt = socket = null
+    closeMedia()
+    frameChannel?.stop()
+    if (room && !reconnectUntil) reconnectUntil = Date.now() + 43000
+    retry()
   }
 }
 
-$('create').onclick = () => request({ type: 'create' })
+$('create').onclick = () => request({ type: 'create', mode: $('room-mode').value })
 $('join').onsubmit = event => {
   event.preventDefault()
   request({ type: 'join', id: $('room-input').value.trim().toUpperCase() })
@@ -526,15 +421,27 @@ $('leave').onclick = () => {
   send({ type: 'leave' })
   exitRoom('Đã rời phòng.')
 }
+$('reset').onclick = () => {
+  if (socket?.readyState !== WebSocket.OPEN || !room) return
+  const last = room.round
+  if (!confirm('Khởi động lại game cho cả phòng? Trận hiện tại sẽ bắt đầu lại từ menu.')) return
+  if (room?.round !== last) return
+  $('reset').disabled = true
+  match('reset', { round: last })
+  setTimeout(() => { if (room?.round === last) $('reset').disabled = false }, 2500)
+}
+$('retry-worker').onclick = () => match('retry')
+$('repair').onclick = () => match('repair')
+$('mute-game').onchange = () => engine?.mute($('mute-game').checked)
+$('profile').onchange = () => {
+  if (peer?.sender) capVideo(peer.sender, profile() === 'smooth').catch(error => record('giới hạn video', error.name))
+}
 $('copy').onclick = async () => {
   try {
     await navigator.clipboard.writeText($('room-code').textContent)
-    const button = $('copy')
-    button.textContent = 'Đã sao chép'
-    setTimeout(() => { button.textContent = 'Sao chép ID' }, 1400)
-  } catch {
-    status('Hãy bôi đen và sao chép ID Room.')
-  }
+    $('copy').textContent = 'Đã sao chép'
+    setTimeout(() => { $('copy').textContent = 'Sao chép ID' }, 1400)
+  } catch { status('Hãy bôi đen và sao chép ID Room.') }
 }
 $('fullscreen').onclick = async () => {
   try {
@@ -542,11 +449,19 @@ $('fullscreen').onclick = async () => {
     else await $('screen').requestFullscreen()
   } catch { status('Trình duyệt chưa mở được toàn màn hình.') }
 }
-$('remote').onclick = () => { $('remote').play().catch(() => {}) }
-
+video.onclick = () => { video.play().catch(() => {}) }
+$('download-log').onclick = () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'bvn-debug.json'
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 function keyEvent(event) {
-  if (role !== 'guest' || !Object.hasOwn(guestKeys, event.code) ||
-      event.ctrlKey || event.metaKey || event.altKey || event.target instanceof HTMLInputElement) return
+  if (!role || !viewer() || !Object.hasOwn(p2Keys, event.code) ||
+      event.ctrlKey || event.metaKey || event.altKey ||
+      event.target.closest?.('input, select, button, summary, textarea, [contenteditable]')) return
   if (!relay && peer?.input?.readyState !== 'open') return
   event.preventDefault()
   if (event.type === 'keydown') {
@@ -559,8 +474,61 @@ window.addEventListener('keydown', keyEvent, true)
 window.addEventListener('keyup', keyEvent, true)
 window.addEventListener('blur', releaseLocal)
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseLocal() })
-window.addEventListener('pagehide', () => {
-  releaseLocal()
-  send({ type: 'leave' })
-  socket?.close()
-})
+window.addEventListener('pagehide', () => { releaseLocal(); socket?.close() })
+window.addEventListener('error', event => record('lỗi JavaScript', event.message))
+window.addEventListener('unhandledrejection', event => record('promise lỗi', event.reason?.message))
+
+setInterval(() => {
+  if (role && viewer() && held.size) sendKeys()
+  if (performance.now() - lastInput > 1000) applyRemote([])
+}, 250)
+let statsAt = performance.now()
+setInterval(async () => {
+  const now = performance.now()
+  const elapsed = (now - statsAt) / 1000
+  statsAt = now
+  if (!role) return
+  const current = peer
+  let metrics = 'Chưa đo được FPS hoặc độ phân giải của luồng.'
+  if (relay) {
+    const { sent, received, lastFrame, since, width, height, encodeMs } = relay
+    if (viewer()) {
+      const stalled = now - (lastFrame || since) > 4000
+      metrics = stalled ? 'Luồng JPEG chưa có khung mới. Đang thử nhận lại.' :
+        `Hiển thị ${(received / elapsed).toFixed(1)} FPS · ${canvas.width} × ${canvas.height}`
+    } else if (width) metrics = `Gửi ${(sent / elapsed).toFixed(1)} FPS · ${width} × ${height} · mã hoá ${Math.round(encodeMs)} ms/khung gần nhất`
+    relay.sent = relay.received = 0
+  } else if (current?.pc?.connectionState === 'connected') {
+    if (current.input?.readyState === 'open' && current.input.bufferedAmount < 4096) {
+      current.input.send(JSON.stringify({ type: 'ping', t: now }))
+    }
+    try {
+      const stats = await current.pc.getStats()
+      if (peer !== current) return
+      for (const stat of stats.values()) {
+        if (stat.kind !== 'video' || stat.type !== (viewer() ? 'inbound-rtp' : 'outbound-rtp')) continue
+        const count = viewer() ? stat.framesDecoded : stat.framesEncoded
+        const fps = stat.framesPerSecond ?? ((count ?? 0) - (current.frames ?? count ?? 0)) / elapsed
+        if (stat.frameWidth) metrics = `${viewer() ? 'Giải mã' : 'Mã hoá'} ${fps.toFixed(1)} FPS · ${stat.frameWidth} × ${stat.frameHeight}`
+        if (viewer() && count === current.frames && !document.hidden) {
+          current.stalled = (current.stalled || 0) + elapsed
+          if (current.stalled > 9) {
+            metrics += ' · Chưa nhận thêm khung. Có thể thử kết nối lại hình.'
+            if (!count) pairFailed(current, 'Video WebRTC chưa giải mã khung đầu tiên')
+          }
+        } else current.stalled = 0
+        if (viewer() && current.presented != null) {
+          metrics += ` · Hiển thị ${(current.presented / elapsed).toFixed(1)} FPS`
+          current.presented = 0
+        }
+        current.frames = count
+      }
+    } catch (error) { record('thống kê WebRTC', error.name) }
+  }
+  $('stream-stats').textContent = metrics
+  if ($('debug').open) record('số liệu luồng', metrics)
+}, 2000)
+if (saved()) {
+  reconnectUntil = Date.now() + 6000
+  request(saved())
+}

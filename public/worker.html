@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Máy chạy trận · Bleach vs Naruto 3.0</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/worker.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header><h1>Máy chạy trận</h1><p>Mở trang này bằng Chrome hoặc Edge trên máy riêng. Giữ cửa sổ hoạt động khi có trận.</p></header>
+    <section class="panel">
+      <form id="worker-connect" autocomplete="off">
+        <label for="worker-token">Khóa worker</label>
+        <input id="worker-token" type="password" required minlength="32" maxlength="512">
+        <button type="submit">Kết nối</button>
+        <button id="worker-stop" type="button">Ngắt kết nối</button>
+      </form>
+      <p id="worker-status" role="status">Chưa kết nối.</p>
+    </section>
+    <section class="arena" aria-label="Màn hình máy chạy trận">
+      <div id="worker-preview" class="screen" style="width:min(100%, 800px);margin:auto">
+        <div id="engine"></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

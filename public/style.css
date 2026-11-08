@@ -49,3 +49,9 @@ footer { color: var(--muted); margin-top: 16px; font-size: .8rem; }
 .network-info { margin-top: 9px; border: 1px solid var(--line); background: #20202b; border-radius: 8px; padding: 9px; font-size: .76rem; color: var(--muted); line-height: 1.45; }
 .network-info[data-mode="direct"] { border-color: #27664c; color: #abedc9; }
 .network-info[data-mode="relay"] { border-color: #90652e; color: #ffdda3; }
+
+select { display: block; width: 100%; margin: 0.3rem 0 0.7rem; padding: 0.45rem; color: inherit; background: #202031; border: 1px solid #414157; border-radius: 0.4rem; }
+#profile-row { margin-top: 0.8rem; }
+#reset, #retry-worker, #leave { margin-top: 0.4rem; }
+#debug { margin-top: 0.5rem; }
+#debug summary { cursor: pointer; }
