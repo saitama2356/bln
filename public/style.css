@@ -45,3 +45,7 @@ footer { color: var(--muted); margin-top: 16px; font-size: .8rem; }
 [hidden] { display: none !important; }
 @media (max-width: 830px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { grid-row: 1; grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { aside { grid-template-columns: 1fr; } }
+
+.network-info { margin-top: 9px; border: 1px solid var(--line); background: #20202b; border-radius: 8px; padding: 9px; font-size: .76rem; color: var(--muted); line-height: 1.45; }
+.network-info[data-mode="direct"] { border-color: #27664c; color: #abedc9; }
+.network-info[data-mode="relay"] { border-color: #90652e; color: #ffdda3; }

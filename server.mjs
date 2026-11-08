@@ -110,6 +110,10 @@ sockets.on('connection', socket => {
     try { msg = JSON.parse(data.toString()) } catch { return }
     if (!msg || typeof msg !== 'object') return
     if (msg.type === 'leave') return leave(socket)
+    // Lightweight application-level RTT (browser WebSocket doesn't expose ping()).
+    if (msg.type === 'ping' && typeof msg.t === 'number' && Number.isFinite(msg.t)) {
+      return send(socket, { type: 'pong', t: msg.t })
+    }
 
     if (msg.type === 'create' || msg.type === 'join') {
       if (socket.room) return error(socket, 'Hãy rời phòng hiện tại trước.')
@@ -140,7 +144,7 @@ sockets.on('connection', socket => {
     const room = socket.room
     if (!room?.guest || msg.round !== room.round) return
     const host = room.host === socket
-    if (msg.type === 'relay' && host && !room.relay) {
+    if (msg.type === 'relay' && !room.relay) {
       room.relay = true
       for (const peer of [room.host, room.guest]) send(peer, { type: 'relay', round: room.round })
       return
