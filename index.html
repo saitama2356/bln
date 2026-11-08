@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101018">
+  <title>Bleach vs Naruto 3.0 • Room Online</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/client.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div class="eyebrow">✦  BẢN MOD TRÌNH DUYỆT &nbsp; / &nbsp; 3.0</div>
+      <h1>BLEACH <em>VS</em> NARUTO</h1>
+      <p>Đấu 1v1 từ xa bằng ID Room.</p>
+    </header>
+    <div class="layout">
+      <section class="arena" aria-label="Màn hình trận đấu">
+        <div class="arena-bar"><span>ĐẤU TRƯỜNG</span><button id="fullscreen" type="button">Toàn màn hình ↗</button></div>
+        <div class="screen" id="screen">
+          <div class="placeholder" id="placeholder">
+            <div class="mark" aria-hidden="true">対</div>
+            <strong>Chờ vào trận</strong>
+            <p>Tạo phòng hoặc nhập mã của bạn bè.</p>
+          </div>
+          <div id="engine" hidden></div>
+          <video id="remote" autoplay playsinline muted hidden></video>
+          <canvas id="relay-screen" aria-label="Hình ảnh trận đấu từ P1" hidden></canvas>
+        </div>
+      </section>
+
+      <aside>
+        <section class="panel" aria-labelledby="room-title">
+          <h2 id="room-title">Phòng đấu</h2>
+          <div id="entry">
+            <button id="create" class="primary" type="button">Tạo phòng mới</button>
+            <form id="join">
+              <label for="room-input">Nhập ID Room</label>
+              <div class="join-row">
+                <input id="room-input" type="text" placeholder="VD: H7P4MX" maxlength="6" minlength="6"
+                  pattern="[A-Za-z0-9]{6}" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+                <button type="submit">Vào phòng</button>
+              </div>
+            </form>
+          </div>
+          <div id="room" hidden>
+            <div class="role" id="role"></div>
+            <div class="room-code" id="room-code"></div>
+            <button type="button" id="copy" class="primary">Sao chép ID</button>
+            <button type="button" id="leave">Rời phòng</button>
+          </div>
+          <div id="status" role="status" aria-live="polite">Sẵn sàng tạo hoặc vào phòng.</div>
+        </section>
+        <section class="panel controls" aria-labelledby="controls-title">
+          <h2 id="controls-title">Điều khiển</h2>
+          <p>P1 chọn <strong>Đấu đơn → Đấu 1v1</strong> trong game. Cả hai dùng cùng bộ phím trên máy của mình.</p>
+          <dl>
+            <dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>Di chuyển</dd>
+            <dt><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></dt><dd>Đánh / Nhảy / Lướt</dd>
+            <dt><kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd></dt><dd>Chiêu phụ / Tuyệt kỹ / Trợ thủ</dd>
+          </dl>
+        </section>
+      </aside>
+    </div>
+    <footer>Game gốc của Jian và 5DPLAY Game Studio.</footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+.bvn-setup-*/
+public/assets/
+public/game.swf
+public/ruffle/
