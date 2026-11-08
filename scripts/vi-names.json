@@ -1,0 +1,37 @@
+{
+  "fighter.xml": {
+    "ichigo": "Ichigo Kurosaki", "ichigo_wanjie": "Ichigo · Bankai",
+    "ichigo_xuhua": "Ichigo · Hollow", "ichigo_zero": "Ichigo · Khởi đầu",
+    "ichigo_neixu": "Ichigo · Nội Hollow", "rukia": "Rukia Kuchiki",
+    "rukia_shijie": "Rukia · Shikai", "renji": "Renji Abarai", "kenpachi": "Kenpachi Zaraki",
+    "ikkaku": "Ikkaku Madarame", "yin": "Gin Ichimaru", "chad": "Chad Sado",
+    "uryuu": "Uryū Ishida", "toushirou": "Tōshirō Hitsugaya", "toushirou_wanjie": "Tōshirō · Bankai",
+    "byakuya": "Byakuya Kuchiki", "byakuya_wanjie": "Byakuya · Bankai",
+    "ulquiorra": "Ulquiorra", "ulquiorra_guiren": "Ulquiorra · Giải phóng",
+    "aizen": "Sōsuke Aizen", "mayuri": "Mayuri Kurotsuchi", "naruto": "Naruto Uzumaki",
+    "naruto_yw": "Naruto · Một đuôi", "naruto_sw": "Naruto · Bốn đuôi",
+    "sakura": "Sakura Haruno", "sasuke": "Sasuke Uchiha",
+    "sasuke_zy": "Sasuke · Ấn nguyền", "sasuke_xz": "Sasuke · Susanoo",
+    "karin": "Karin", "juggo": "Jūgo", "itachi": "Itachi Uchiha", "didala": "Deidara",
+    "kakashi": "Kakashi Hatake", "lee": "Rock Lee", "neji": "Neji Hyūga",
+    "gaara": "Gaara", "temari": "Temari", "jiraiya": "Jiraiya", "orochimaru": "Orochimaru",
+    "killerbee": "Killer B", "pain": "Pain", "konan": "Konan", "naruto_xianren": "Naruto · Tiên Nhân",
+    "naruto_gold": "Naruto · Cửu Vĩ", "obito": "Obito Uchiha", "obito_s2": "Obito · Bộc phát",
+    "kenshin": "Kenshin Himura", "kenshin_bdz": "Kenshin · Battōsai"
+  },
+  "assist.xml": {
+    "kon": "Kon", "orihime": "Orihime Inoue", "yoruichi": "Yoruichi Shihōin", "uryuu": "Uryū Ishida",
+    "kenpachi": "Kenpachi Zaraki", "ichigo_white2": "Ichigo · Hollow cấp 2", "yachiru": "Yachiru Kusajishi",
+    "stake": "Coyote Starrk", "halibel": "Tier Harribel", "grimmjow": "Grimmjow",
+    "soifong": "Suì-Fēng", "nemu": "Nemu Kurotsuchi", "garra": "Gaara", "temari": "Temari",
+    "ino": "Ino Yamanaka", "tenten": "Tenten", "itachi": "Itachi Uchiha", "hinata": "Hinata Hyūga",
+    "tsunate": "Tsunade", "tsuchikage": "Thổ Ảnh", "minato": "Hokage Đệ Tứ", "jiraiya": "Jiraiya",
+    "suigetsu": "Suigetsu Hōzuki", "sai": "Sai", "madara": "Madara Uchiha", "shishio": "Makoto Shishio"
+  },
+  "map.xml": {
+    "xianshi": "Nhân giới", "liuhunjie": "Phố Rukon", "jingyantin": "Tĩnh Linh Đình",
+    "shuangji": "Đồi Sōkyoku", "shihunjietongdao": "Lối vào Thi Hồn Giới", "jianchang": "Mộ Trảm Phách Đao",
+    "zoulang": "Đội 13", "muyecun": "Làng Lá", "wenquan": "Suối nước nóng", "pubu": "Thác Hokage",
+    "louding": "Sân thượng", "yuzhibocun": "Khu nhà Uchiha", "senlin": "Rừng", "wuyingcun": "Làng Sương Mù"
+  }
+}
