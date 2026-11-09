@@ -5,8 +5,11 @@ export const p2Keys = {
   KeyU: ['Numpad4', '4', 100], KeyI: ['Numpad5', '5', 101], KeyO: ['Numpad6', '6', 102],
   KeyP: ['NumpadAdd', '+', 107], Escape: ['Escape', 'Escape', 27], Enter: ['Enter', 'Enter', 13],
 }
-export const p1Keys = Object.fromEntries(Object.keys(p2Keys).map(code =>
-  [code, [code, code[3].toLowerCase(), code.charCodeAt(3)]]))
+export const p1Keys = {
+  ...Object.fromEntries(Object.keys(p2Keys).filter(code => code.startsWith('Key')).map(code =>
+    [code, [code, code[3].toLowerCase(), code.charCodeAt(3)]])),
+  Escape: ['Escape', 'Escape', 27], Enter: ['Enter', 'Enter', 13],
+}
 export const validKeys = keys => Array.isArray(keys) && keys.length <= Object.keys(p2Keys).length &&
   keys.every(key => Object.hasOwn(p2Keys, key))
 
@@ -15,12 +18,12 @@ function loadRuffle() {
   if (window.RufflePlayer?.newest) return Promise.resolve()
   return rufflePromise ??= new Promise((resolve, reject) => {
     const script = document.createElement('script')
-    script.src = '/ruffle/ruffle.js'
+    script.src = 'https://unpkg.com/@ruffle-rs/ruffle@0.7.1'
     script.onload = resolve
     script.onerror = () => {
       script.remove()
       rufflePromise = null
-      reject(new Error('Chưa tải được Ruffle. Trên máy chủ, hãy chạy npm run setup.'))
+      reject(new Error('Chưa tải được Ruffle từ unpkg.com. Kiểm tra kết nối rồi thử lại.'))
     }
     document.head.append(script)
   })
@@ -51,12 +54,13 @@ export function startGame(container, notify) {
     await loadRuffle()
     signal.throwIfAborted()
     instance = window.RufflePlayer.newest().createPlayer()
-    instance.config = {
+    runtime = instance.ruffle()
+    runtime.config = {
       autoplay: 'on', unmuteOverlay: 'hidden', splashScreen: false,
       preferredRenderer: 'canvas', allowScriptAccess: false,
+      playerRuntime: 'air',
       backgroundExecutionMode: 'mainThread',
-      fontSources: ['/fonts/DejaVuSans.ttf', '/fonts/DejaVuSans-Bold.ttf'],
-      defaultFonts: { sans: ['DejaVu Sans'] },
+      defaultFonts: { sans: ['Arial', 'sans-serif'] },
     }
     container.replaceChildren(instance)
     instance.addEventListener('keydown', event => {
@@ -65,9 +69,8 @@ export function startGame(container, notify) {
       lastInput = performance.now()
       attempts++
     }, { capture: true, signal })
-    runtime = instance.ruffle()
     try {
-      await runtime.load({ url: '/game.swf' })
+      await runtime.load({ url: '/game/launch-web-online.swf' })
     } finally {
       // The pinned build can create its instance after the element was removed.
       if (signal.aborted) instance.disconnectedCallback()

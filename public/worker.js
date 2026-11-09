@@ -186,8 +186,8 @@ $('worker-connect').onsubmit = async event => {
   $('worker-token').value = ''
   try {
     capture = await navigator.mediaDevices.getDisplayMedia({
-      video: { displaySurface: 'window', frameRate: { ideal: 30, max: 30 } },
-      audio: false, monitorTypeSurfaces: 'exclude', selfBrowserSurface: 'exclude',
+      video: { frameRate: { ideal: 30, max: 30 } },
+      audio: false,
     })
     const [track] = capture.getVideoTracks()
     const surface = track.getSettings().displaySurface

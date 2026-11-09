@@ -4,25 +4,51 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101018">
-  <title>Bleach vs Naruto 3.8.6 • Room Online</title>
+  <title>Bleach vs Naruto 3.8.6 • Mời chơi online</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/client.js"></script>
 </head>
 <body>
   <main class="shell">
     <header>
-      <div class="eyebrow">✦  BẢN MOD TRÌNH DUYỆT &nbsp; / &nbsp; 3.8.6</div>
+      <div class="eyebrow">✦  PHÒNG CHƠI ONLINE &nbsp; / &nbsp; 3.8.6</div>
       <h1>BLEACH <em>VS</em> NARUTO</h1>
-      <p>Đấu 1v1 từ xa bằng ID Room.</p>
+    <p>Mỗi người chạy game trên máy mình; game kết nối P2P trực tiếp, máy tạo link chỉ ghép phòng.</p>
     </header>
+    <section class="download-panel" aria-labelledby="download-title">
+      <div>
+        <h2 id="download-title">Tải game một lần, rồi gửi link mời</h2>
+        <p>Chọn gói theo máy. ZIP đã gồm game, Node.js và agent P2P; không cần cài Node riêng.</p>
+        <div class="download-links">
+          <a class="download-card" href="/downloads/BVNxVH386-Windows-Online.zip">
+            <strong>Windows x64</strong><span>Tải gói game trọn bộ</span>
+          </a>
+          <a class="download-card" href="/downloads/BVNxVH386-Mac-AppleSilicon-Online.zip">
+            <strong>Mac Apple Silicon</strong><span>Tải gói game trọn bộ</span>
+          </a>
+          <a class="download-card" href="/downloads/BVNxVH386-Ubuntu-Linux.zip">
+            <strong>Ubuntu / Linux</strong><span>Tải launcher mở link mời · game còn thử nghiệm</span>
+          </a>
+        </div>
+      </div>
+      <div class="download-instructions">
+        <strong>Cách chơi</strong>
+        <ol>
+          <li>Muốn chạy game AIR: cả hai tải gói Windows/Mac, giải nén và mở Start-Online.</li>
+          <li>Chế độ AIR: chọn “Game AIR trên từng máy · P2P trực tiếp”, cả hai dán mã kết nối vào Start-Online và chờ P1/P2 đều báo “đã nối trực tiếp”; sau đó P1 tạo phòng LAN, P2 tìm phòng LAN để vào.</li>
+          <li>Ubuntu/Linux: launcher mở link mời, nhưng game AIR hiện chưa chạy ổn trong Ruffle trên trình duyệt. Để chơi trận đầy đủ, dùng gói Windows/Mac và chọn P2P trực tiếp.</li>
+        </ol>
+        <small>Windows có thể cần Adobe AIR runtime. Mac dành cho chip Apple Silicon. Linux launcher hiện chỉ mở link mời; chưa có runtime game Linux đã kiểm chứng.</small>
+      </div>
+    </section>
     <div class="layout">
       <section class="arena" aria-label="Màn hình trận đấu">
         <div class="arena-bar"><span>ĐẤU TRƯỜNG</span><button id="fullscreen" type="button">Toàn màn hình ↗</button></div>
         <div class="screen" id="screen">
           <div class="placeholder" id="placeholder">
             <div class="mark" aria-hidden="true">対</div>
-            <strong>Chờ vào trận</strong>
-            <p>Tạo phòng hoặc nhập mã của bạn bè.</p>
+            <strong id="arena-title">Chờ vào trận</strong>
+            <p id="arena-description">Tạo phòng hoặc nhập mã của bạn bè.</p>
           </div>
           <div id="engine" hidden></div>
           <video id="remote" autoplay playsinline muted hidden></video>
@@ -35,9 +61,11 @@
           <h2 id="room-title">Phòng đấu</h2>
           <div id="entry">
             <label for="room-mode" hidden>Chế độ phòng</label>
-            <select id="room-mode" hidden>
-              <option value="local">P1 chạy game</option>
-              <option value="central" selected>Máy chạy trận riêng</option>
+            <label for="room-mode">Cách chạy trận</label>
+            <select id="room-mode">
+              <option value="lan" selected>Game AIR trên từng máy · P2P trực tiếp</option>
+              <option value="peer">Mỗi trình duyệt tự chạy game · P2P chỉ truyền phím</option>
+              <option value="central">Game AIR trên máy này (truyền hình)</option>
             </select>
             <button id="create" class="primary" type="button">Tạo phòng mới</button>
             <form id="join">
@@ -53,6 +81,20 @@
             <div class="role" id="role"></div>
             <div class="room-code" id="room-code"></div>
             <button type="button" id="copy" class="primary">Sao chép ID</button>
+            <button type="button" id="copy-invite">Sao chép link mời</button>
+            <section id="lan-steps" class="lan-steps" hidden>
+              <strong>Chạy game trên máy của bạn</strong>
+              <p>Tải một gói trọn bộ cho hệ điều hành của bạn. Node.js và agent P2P đã có sẵn, không cần cài Node riêng. Dữ liệu game đi trực tiếp giữa hai máy.</p>
+              <p id="lan-game-step"></p>
+              <a href="/downloads/BVNxVH386-Windows-Online.zip">Tải trọn bộ Windows</a>
+              <a href="/downloads/BVNxVH386-Mac-AppleSilicon-Online.zip">Tải trọn bộ Mac Apple Silicon</a>
+              <a href="/downloads/BVNxVH386-Ubuntu-Linux.zip">Tải launcher Ubuntu / Linux</a>
+              <p>Mở <strong>Start-Online.cmd</strong> (Windows) hoặc <strong>Start-Online.command</strong> (Mac), rồi dán mã kết nối:</p>
+              <code id="lan-connect-code"></code>
+              <button type="button" id="copy-lan-code">Sao chép mã kết nối</button>
+              <p id="bridge-state">Đang chờ Start-Online…</p>
+            </section>
+            <p id="peer-steps" hidden>Chế độ trình duyệt còn thử nghiệm: Ruffle không đọc được một số file AIR mà game cần và có thể hiện màn hình đen. Để chơi, dùng gói Windows/Mac ở chế độ P2P trực tiếp.</p>
             <div id="profile-row">
               <label for="profile">Chất lượng truyền hình</label>
               <select id="profile"><option value="balanced">Cân bằng</option><option value="smooth">Ưu tiên độ mượt</option></select>
@@ -78,7 +120,7 @@
         </section>
         <section class="panel controls" aria-labelledby="controls-title">
           <h2 id="controls-title">Điều khiển</h2>
-          <p>P1 chọn <strong>Đấu đơn → Đấu 1v1</strong> trong game. Cả hai dùng cùng bộ phím trên máy của mình.</p>
+          <p>P1 chọn <strong>Đấu đơn → Đấu 1v1</strong> trong game. P1 dùng WASD và J/K/L/U/I/O/P; P2 dùng phím mũi tên và numpad 1–6/+.</p>
           <dl>
             <dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>Di chuyển</dd>
             <dt><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></dt><dd>Đánh / Nhảy / Lướt</dd>
