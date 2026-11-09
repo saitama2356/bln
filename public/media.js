@@ -54,14 +54,16 @@ export function streamJpeg(source, round, link, profile, onFrame) {
   function tick() {
     if (!running) return
     const channel = link()
-    if (!source.width || !source.height || !channel?.available()) {
+    const sourceWidth = source.videoWidth || source.width
+    const sourceHeight = source.videoHeight || source.height
+    if (!sourceWidth || !sourceHeight || !channel?.available()) {
       congested()
       return schedule()
     }
     const smooth = profile() === 'smooth'
-    const scale = Math.min(1, (smooth ? 480 : 640) / source.width, (smooth ? 360 : 480) / source.height)
-    const width = Math.max(1, Math.round(source.width * scale))
-    const height = Math.max(1, Math.round(source.height * scale))
+    const scale = Math.min(1, (smooth ? 480 : 640) / sourceWidth, (smooth ? 360 : 480) / sourceHeight)
+    const width = Math.max(1, Math.round(sourceWidth * scale))
+    const height = Math.max(1, Math.round(sourceHeight * scale))
     if (frame.width !== width || frame.height !== height) {
       frame.width = width
       frame.height = height

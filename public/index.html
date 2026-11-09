@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101018">
-  <title>Bleach vs Naruto 3.0 • Room Online</title>
+  <title>Bleach vs Naruto 3.8.6 • Room Online</title>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/client.js"></script>
 </head>
 <body>
   <main class="shell">
     <header>
-      <div class="eyebrow">✦  BẢN MOD TRÌNH DUYỆT &nbsp; / &nbsp; 3.0</div>
+      <div class="eyebrow">✦  BẢN MOD TRÌNH DUYỆT &nbsp; / &nbsp; 3.8.6</div>
       <h1>BLEACH <em>VS</em> NARUTO</h1>
       <p>Đấu 1v1 từ xa bằng ID Room.</p>
     </header>
@@ -34,10 +34,10 @@
         <section class="panel" aria-labelledby="room-title">
           <h2 id="room-title">Phòng đấu</h2>
           <div id="entry">
-            <label for="room-mode">Chế độ phòng</label>
-            <select id="room-mode">
+            <label for="room-mode" hidden>Chế độ phòng</label>
+            <select id="room-mode" hidden>
               <option value="local">P1 chạy game</option>
-              <option value="central">Máy chạy trận riêng</option>
+              <option value="central" selected>Máy chạy trận riêng</option>
             </select>
             <button id="create" class="primary" type="button">Tạo phòng mới</button>
             <form id="join">
@@ -58,7 +58,7 @@
               <select id="profile"><option value="balanced">Cân bằng</option><option value="smooth">Ưu tiên độ mượt</option></select>
             </div>
             <div id="sound-row" hidden><label><input type="checkbox" id="mute-game"> Tắt tiếng game trên máy này</label></div>
-            <button type="button" id="reset">Khởi động lại trận</button>
+            <button type="button" id="reset" hidden>Khởi động lại trận</button>
             <button type="button" id="retry-worker" hidden>Thử lại máy chạy trận</button>
             <button type="button" id="leave">Rời phòng</button>
           </div>
@@ -82,7 +82,7 @@
           <dl>
             <dt><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></dt><dd>Di chuyển</dd>
             <dt><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></dt><dd>Đánh / Nhảy / Lướt</dd>
-            <dt><kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd></dt><dd>Chiêu phụ / Tuyệt kỹ / Trợ thủ</dd>
+            <dt><kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd></dt><dd>Chiêu phụ / Tuyệt kỹ / Trợ thủ. P là kỹ năng bổ sung.</dd>
           </dl>
         </section>
       </aside>

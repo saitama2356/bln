@@ -1,5 +1,5 @@
 {
-  "name": "bvn-room",
+  "name": "bvn386-web-host",
   "version": "1.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,6 @@
     "node": ">=22"
   },
   "scripts": {
-    "setup": "node scripts/setup.mjs",
     "start": "node server.mjs"
   },
   "dependencies": {

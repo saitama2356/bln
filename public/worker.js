@@ -1,15 +1,14 @@
-import { startGame, p1Keys, p2Keys, remoteKeys, validKeys } from './engine.js'
+import { validKeys } from './engine.js'
 import { capVideo, frameLink, socketFor, streamJpeg } from './media.js'
 
 const $ = id => document.getElementById(id)
 const seats = ['host', 'guest']
-let socket, frameChannel, room, game, media, jpeg, engineState
+let socket, frameChannel, room, media, jpeg, capture
 const peers = new Map()
 const fallback = new Set()
-const apply = {
-  host: remoteKeys(() => game, p1Keys),
-  guest: remoteKeys(() => game, p2Keys),
-}
+const preview = $('worker-video')
+let nativeSequence = 0
+const apply = (seat, keys) => send('native-keys', { seat, keys, seq: ++nativeSequence })
 const status = text => { $('worker-status').textContent = text }
 function send(type, payload = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type, round: room?.round, ...payload }))
@@ -21,7 +20,7 @@ function drop(seat) {
     clearTimeout(peer.timeout)
     peer.pc?.close()
   }
-  apply[seat]([])
+  apply(seat, [])
   if (media && !Array.from(peers.values()).some(peer => peer.pc)) {
     media.getTracks().forEach(track => track.stop())
     media = null
@@ -39,30 +38,29 @@ function closeTransport() {
 }
 function stopGame() {
   closeTransport()
-  game?.stop()
-  room = game = engineState = null
+  room = null
 }
 function keys(peer, message) {
   if (!Number.isSafeInteger(message.seq) || message.seq <= peer.seq || !validKeys(message.keys)) return
   peer.seq = message.seq
   peer.lastInput = performance.now()
-  apply[peer.seat](message.keys)
+  apply(peer.seat, message.keys)
 }
 function fail(peer) {
   if (peers.get(peer.seat) !== peer || peer.failed) return
   peer.failed = true
   clearTimeout(peer.timeout)
-  apply[peer.seat]([])
+  apply(peer.seat, [])
   send('relay', { seat: peer.seat })
 }
 async function relay(seat) {
-  if (fallback.has(seat) || !room || !game) return
+  if (fallback.has(seat) || !room || !capture) return
   drop(seat)
   const current = room
   fallback.add(seat)
   peers.set(seat, { seat, seq: 0, lastInput: 0 })
   try {
-    const canvas = await game.ready
+    const canvas = preview
     if (room !== current || !fallback.size || jpeg) return
     jpeg = streamJpeg(canvas, current.round, () => frameChannel, () => 'balanced', () => {})
   } catch { /* Engine errors are sent by startGame. */ }
@@ -89,7 +87,7 @@ function newPeer(seat, iceServers) {
     pc.onconnectionstatechange = () => {
       if (peers.get(seat) !== peer) return
       if (pc.connectionState === 'disconnected') {
-        apply[seat]([])
+        apply(seat, [])
         clearTimeout(peer.timeout)
         peer.timeout = setTimeout(() => fail(peer), 8000)
       } else if (pc.connectionState === 'failed') fail(peer)
@@ -109,10 +107,10 @@ function newPeer(seat, iceServers) {
   } catch { fail(peer) }
   return peer
 }
-async function offer(peer, source, current) {
+async function offer(peer, current) {
   if (room !== current || peers.get(peer.seat) !== peer || !peer.pc) return
   try {
-    media ??= source.captureStream(30)
+    media ??= new MediaStream(capture.getVideoTracks().map(track => track.clone()))
     const pc = peer.pc
     peer.sender = pc.addTrack(media.getVideoTracks()[0], media)
     await pc.setLocalDescription(await pc.createOffer())
@@ -127,19 +125,11 @@ async function start(message) {
   room = { id: message.id, round: message.round }
   const current = room
   status('Đang chạy phòng ' + room.id + '.')
-  game ??= startGame($('engine'), state => {
-    engineState = state
-    send('engine-status', { state })
-    if (state === 'error') status('Game chưa khởi động được. Kiểm tra Console và npm run setup.')
-  })
   const targets = seats.map(seat => newPeer(seat, message.iceServers))
   try {
-    const source = await game.ready
-    if (room !== current) return
-    source.tabIndex = 0
-    source.focus({ preventScroll: true })
-    if (engineState) send('engine-status', { state: engineState })
-    await Promise.all(targets.map(peer => offer(peer, source, current)))
+    if (!capture?.active || !preview.videoWidth) throw new Error('Mất luồng cửa sổ game')
+    send('engine-status', { state: 'running' })
+    await Promise.all(targets.map(peer => offer(peer, current)))
   } catch {
     if (room === current) for (const peer of targets) fail(peer)
   }
@@ -183,14 +173,33 @@ function disconnect() {
   stopGame()
   frameChannel?.stop()
   frameChannel = null
+  const stopped = capture
+  capture = null
+  preview.srcObject = null
+  stopped?.getTracks().forEach(track => track.stop())
   status('Đã ngắt kết nối.')
 }
-$('worker-connect').onsubmit = event => {
+$('worker-connect').onsubmit = async event => {
   event.preventDefault()
   disconnect()
   let token = $('worker-token').value
   $('worker-token').value = ''
-  status('Đang xác thực worker…')
+  try {
+    capture = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: 'window', frameRate: { ideal: 30, max: 30 } },
+      audio: false, monitorTypeSurfaces: 'exclude', selfBrowserSurface: 'exclude',
+    })
+    const [track] = capture.getVideoTracks()
+    const surface = track.getSettings().displaySurface
+    if (surface !== 'window') throw new Error('Hãy chọn đúng cửa sổ game, không chia sẻ toàn màn hình.')
+    track.addEventListener('ended', disconnect, { once: true })
+    preview.srcObject = capture
+    await preview.play()
+  } catch (error) {
+    disconnect()
+    return status('Chưa chia sẻ được cửa sổ game. ' + error.message)
+  }
+  status('Đang xác thực máy chạy game…')
   const connection = socketFor('/rooms')
   socket = connection
   connection.onopen = () => {
@@ -209,5 +218,5 @@ $('worker-connect').onsubmit = event => {
 $('worker-stop').onclick = disconnect
 window.addEventListener('pagehide', disconnect)
 setInterval(() => {
-  for (const [seat, peer] of peers) if (performance.now() - peer.lastInput > 1000) apply[seat]([])
+  for (const [seat, peer] of peers) if (performance.now() - peer.lastInput > 1000) apply(seat, [])
 }, 250)

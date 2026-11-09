@@ -3,10 +3,11 @@ export const p2Keys = {
   KeyS: ['ArrowDown', 'ArrowDown', 40], KeyD: ['ArrowRight', 'ArrowRight', 39],
   KeyJ: ['Numpad1', '1', 97], KeyK: ['Numpad2', '2', 98], KeyL: ['Numpad3', '3', 99],
   KeyU: ['Numpad4', '4', 100], KeyI: ['Numpad5', '5', 101], KeyO: ['Numpad6', '6', 102],
+  KeyP: ['NumpadAdd', '+', 107], Escape: ['Escape', 'Escape', 27], Enter: ['Enter', 'Enter', 13],
 }
 export const p1Keys = Object.fromEntries(Object.keys(p2Keys).map(code =>
   [code, [code, code[3].toLowerCase(), code.charCodeAt(3)]]))
-export const validKeys = keys => Array.isArray(keys) && keys.length <= 10 &&
+export const validKeys = keys => Array.isArray(keys) && keys.length <= Object.keys(p2Keys).length &&
   keys.every(key => Object.hasOwn(p2Keys, key))
 
 let rufflePromise

@@ -5,6 +5,7 @@ import { createServer } from 'node:http'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocket, WebSocketServer } from 'ws'
+const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO', 'KeyP', 'Escape', 'Enter']
 
 const root = await realpath(fileURLToPath(new URL('./public/', import.meta.url)))
 const types = {
@@ -42,7 +43,7 @@ const rooms = new Map()
 const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 const maxFrame = 256 * 1024
 const sockets = new WebSocketServer({ noServer: true, maxPayload: maxFrame })
-const inputCodes = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyJ', 'KeyK', 'KeyL', 'KeyU', 'KeyI', 'KeyO'])
+const inputCodes = new Set(keys)
 const send = (socket, message) => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
@@ -61,16 +62,24 @@ function iceServers() {
   return servers
 }
 
-const workerSecret = process.env.ROOM_WORKER_SECRET || ''
-if (workerSecret && Buffer.byteLength(workerSecret) < 32) throw new Error('ROOM_WORKER_SECRET cần ít nhất 32 byte.')
+const workerSecret = Buffer.from(process.env.ROOM_WORKER_SECRET ?? '')
+if (workerSecret.length < 32) throw new Error('ROOM_WORKER_SECRET cần ít nhất 32 byte.')
+const authorized = candidate => {
+  const key = typeof candidate === 'string' ? Buffer.from(candidate) : Buffer.alloc(0)
+  return key.length === workerSecret.length && timingSafeEqual(key, workerSecret)
+}
 const frameOwners = new Map()
 const reconnectMs = 45000
-let worker, workerRoom
+let worker, workerRoom, nativeSocket
+let lastRound = 0
 
 server.on('upgrade', (req, socket, head) => {
   let sameOrigin = false
   try { sameOrigin = new URL(req.headers.origin).host === req.headers.host } catch {}
-  if (!['/rooms', '/frames'].includes(req.url) || !sameOrigin || sockets.clients.size >= 250) {
+  const allowed = req.url === '/native'
+    ? !req.headers.origin
+    : ['/rooms', '/frames'].includes(req.url) && sameOrigin
+  if (!allowed || sockets.clients.size >= 250) {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
     return
   }
@@ -97,7 +106,14 @@ function closeFrames(socket) {
 function stopWorker(room) {
   if (workerRoom !== room) return
   send(worker, { type: 'worker-stop', id: room.id })
+  send(nativeSocket, { type: 'native-stop', round: room.round })
   workerRoom = null
+}
+function workerLost(room) {
+  if (!room) return
+  stopWorker(room)
+  room.relay = new Set()
+  broadcast(room, { type: 'worker-unavailable', round: room.round })
 }
 function announce(room, socket, seat) {
   send(socket, { type: 'room', id: room.id, role: socket.role, mode: room.mode,
@@ -106,7 +122,7 @@ function announce(room, socket, seat) {
 
 function pair(room, restart = false) {
   room.relay = new Set()
-  room.round += 1
+  room.round = ++lastRound
   const { round } = room
   if (restart) broadcast(room, { type: 'reset', round })
   if (!room.host.socket || !room.guest?.socket) {
@@ -114,11 +130,12 @@ function pair(room, restart = false) {
     return
   }
   if (isCentral(room)) {
-    if (!worker || (workerRoom && workerRoom !== room)) {
+    if (!worker || !nativeSocket || (workerRoom && workerRoom !== room)) {
       broadcast(room, { type: 'worker-unavailable', round })
       return
     }
     workerRoom = room
+    send(nativeSocket, { type: 'native-start', round })
     send(worker, { type: 'worker-start', id: room.id, round, restart, iceServers: iceServers() })
     broadcast(room, { type: 'paired', round, mode: room.mode, iceServers: iceServers() })
   } else {
@@ -142,7 +159,10 @@ function leave(socket, explicit) {
   if (seat?.socket !== socket) return
   seat.socket = null
   room.relay = new Set()
-  if (workerRoom === room) send(worker, { type: 'worker-drop', round: room.round, seat: role })
+  if (workerRoom === room) {
+    send(nativeSocket, { type: 'native-input', round: room.round, seat: role, keys: [] })
+    send(worker, { type: 'worker-drop', round: room.round, seat: role })
+  }
   const remove = () => {
     if (seat.socket || !rooms.has(room.id)) return
     if (role === 'host') {
@@ -183,12 +203,10 @@ function relayTo(room, role) {
 }
 function validKeys(msg) {
   return Number.isSafeInteger(msg.seq) && msg.seq > 0 && Array.isArray(msg.keys) &&
-    msg.keys.length <= 10 && msg.keys.every(key => inputCodes.has(key))
+    msg.keys.length <= keys.length && msg.keys.every(key => inputCodes.has(key))
 }
 function registerWorker(socket, candidate) {
-  const key = typeof candidate === 'string' ? Buffer.from(candidate) : Buffer.alloc(0)
-  const expected = Buffer.from(workerSecret)
-  if (!expected.length || key.length !== expected.length || !timingSafeEqual(key, expected) || socket.room || worker) {
+  if (!authorized(candidate) || socket.room || worker) {
     return socket.close(1008, 'Không thể đăng ký worker')
   }
   worker = socket
@@ -202,6 +220,10 @@ function workerMessage(msg) {
     return
   }
   if (!['host', 'guest'].includes(msg.seat) || !room[msg.seat]?.socket) return
+  if (msg.type === 'native-keys' && validKeys(msg)) {
+    if (nativeSocket?.bufferedAmount > 64 * 1024) return nativeSocket.terminate()
+    return send(nativeSocket, { type: 'native-input', round: room.round, seat: msg.seat, keys: msg.keys })
+  }
   if (msg.type === 'relay') relayTo(room, msg.seat)
   if (msg.type === 'signal' && !room.relay.has(msg.seat)) signal(room[msg.seat].socket, msg, {}, 'offer')
 }
@@ -236,15 +258,17 @@ sockets.on('connection', (socket, path) => {
   socket.frames = 0
   socket.on('pong', () => { socket.alive = true })
   socket.on('error', () => socket.terminate())
+  const registration = path === '/native' && setTimeout(() => socket.close(1008, 'Xác thực quá hạn'), 5000)
   socket.on('close', () => {
+    clearTimeout(registration)
+    if (socket === nativeSocket) {
+      nativeSocket = null
+      workerLost(workerRoom)
+    }
     if (socket.owner?.frameSocket === socket) socket.owner.frameSocket = null
     if (worker === socket) {
-      const room = workerRoom
-      worker = workerRoom = null
-      if (room) {
-        room.relay = new Set()
-        broadcast(room, { type: 'worker-unavailable', round: room.round })
-      }
+      worker = null
+      workerLost(workerRoom)
     }
     closeFrames(socket)
     leave(socket, false)
@@ -255,6 +279,15 @@ sockets.on('connection', (socket, path) => {
     let msg
     try { msg = JSON.parse(data.toString()) } catch { return }
     if (!msg || typeof msg !== 'object') return
+    if (path === '/native') {
+      if (socket === nativeSocket) return
+      if (msg.type !== 'native-register' || nativeSocket || !authorized(msg.token)) {
+        return socket.close(1008, 'Không thể đăng ký Mac')
+      }
+      clearTimeout(registration)
+      nativeSocket = socket
+      return send(socket, { type: 'native-registered' })
+    }
     if (socket === worker) return workerMessage(msg)
     if (msg.type === 'worker-register') return registerWorker(socket, msg.token)
     if (msg.type === 'leave') return leave(socket, true)
@@ -263,8 +296,8 @@ sockets.on('connection', (socket, path) => {
     if (['create', 'join', 'resume'].includes(msg.type)) {
       if (socket.room) return error(socket, 'Hãy rời phòng hiện tại trước.')
       if (msg.type === 'create') {
-        const mode = msg.mode === 'central' ? 'central' : 'local'
-        if (mode === 'central' && !worker) return error(socket, 'Máy chạy trận chưa sẵn sàng. Hãy kết nối worker rồi thử lại.')
+        const mode = 'central'
+        if (!worker || !nativeSocket) return error(socket, 'Máy chạy trận chưa sẵn sàng. Hãy kết nối Mac và trang máy chạy trận rồi thử lại.')
         if (rooms.size >= 100) return error(socket, 'Máy chủ đang có quá nhiều phòng.')
         let id
         do {
@@ -293,7 +326,7 @@ sockets.on('connection', (socket, path) => {
     const room = socket.room
     if (!room || msg.round !== room.round || room[socket.role]?.socket !== socket) return
     const central = isCentral(room)
-    if (msg.type === 'reset') return pair(room, true)
+    if (msg.type === 'reset') return
     if (msg.type === 'retry' && central && workerRoom !== room) return pair(room)
     if (msg.type === 'repair' && room.host.socket && room.guest?.socket) return pair(room)
     if (msg.type === 'engine-status' && socket.role === 'host' && !central &&
@@ -329,6 +362,7 @@ setInterval(() => {
   }
 }, 15000).unref()
 
+server.on('error', error => { console.error(error.message); process.exit(1) })
 server.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => {
   console.log(`BVN Room • ${server.address().port}`)
 })
