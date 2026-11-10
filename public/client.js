@@ -1,4 +1,4 @@
-import { startGame, p1Keys, p2Keys, remoteKeys, validKeys } from './engine.js'
+import { startGame, p2Keys, remoteKeys, validKeys } from './engine.js'
 import { capVideo, frameLink, socketFor, streamJpeg } from './media.js'
 
 const $ = id => document.getElementById(id)
@@ -8,8 +8,7 @@ let socket, role, room, frameChannel, engine, peer, relay
 let pending = false, reconnectUntil = 0, reconnectTimer
 let signalPing, serverRtt, peerRtt, inputSequence = 0, engineState
 let lastInput = 0
-const applyP1 = remoteKeys(() => engine, p1Keys)
-const applyP2 = remoteKeys(() => engine, p2Keys)
+const applyRemote = remoteKeys(() => engine, p2Keys)
 const video = $('remote')
 const canvas = $('relay-screen')
 const engineLabels = {
@@ -18,10 +17,7 @@ const engineLabels = {
 }
 const profile = () => $('profile').value
 const central = () => room?.mode === 'central'
-const peerRender = () => room?.mode === 'peer'
-const lanMode = () => room?.mode === 'lan'
-const viewer = () => central() || (role === 'guest' && !peerRender())
-const applyRemote = keys => (role === 'host' ? applyP2 : applyP1)(keys)
+const viewer = () => central() || role === 'guest'
 const send = message => {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
@@ -43,31 +39,18 @@ function busy(value) {
   $('join').querySelector('button').disabled = value
 }
 function view() {
-  $('placeholder').hidden = Boolean(role) && !lanMode()
-  if (lanMode()) {
-    $('arena-title').textContent = 'Game chạy trong ứng dụng trên máy bạn'
-    $('arena-description').textContent = role === 'host' ?
-      'P1: mở BVN trên máy này → LAN → Tạo phòng. P2 sẽ tìm phòng đó trong game của họ.' :
-      'P2: mở BVN trên máy này → LAN → Tìm phòng. Chọn phòng P1 tạo để vào trận.'
-  } else {
-    $('arena-title').textContent = 'Chờ vào trận'
-    $('arena-description').textContent = 'Tạo phòng hoặc nhập mã của bạn bè.'
-  }
-  $('engine').hidden = !role || viewer() || lanMode()
-  video.hidden = !role || lanMode() || !viewer() || Boolean(relay)
-  canvas.hidden = !role || lanMode() || !viewer() || !relay
-  $('sound-row').hidden = role !== 'host' || viewer() || peerRender()
-  $('profile-row').hidden = !role || lanMode() || peerRender() || role === 'guest'
-  $('lan-steps').hidden = !role || !lanMode()
-  $('peer-steps').hidden = !role || !peerRender()
+  $('placeholder').hidden = Boolean(role)
+  $('engine').hidden = !role || viewer()
+  video.hidden = !role || !viewer() || Boolean(relay)
+  canvas.hidden = !role || !viewer() || !relay
+  $('sound-row').hidden = role !== 'host' || viewer()
 }
 function networkInfo() {
-  $('network-info').hidden = !role || lanMode()
-  $('repair').hidden = peerRender() ? !role : !viewer() || (!peer && !relay)
+  $('network-info').hidden = !role
+  $('repair').hidden = !viewer() || (!peer && !relay)
   if (!role) return
   const direct = peer?.pc?.connectionState === 'connected' && peer?.input?.readyState === 'open'
-  const mode = peerRender() ? (direct ? 'Dựng hình cục bộ · P2P' : 'Dựng hình cục bộ · Đang kết nối') :
-    relay ? 'JPEG qua Render' : direct ? 'WebRTC' : peer ? 'Đang kết nối' : 'Chưa có luồng online'
+  const mode = relay ? 'JPEG qua Render' : direct ? 'WebRTC' : peer ? 'Đang kết nối' : 'Chưa có luồng online'
   $('network-mode').textContent = (central() ? 'Máy chạy trận · ' : '') + mode
   $('network-info').dataset.mode = relay ? 'relay' : direct ? 'direct' : 'connecting'
   const rtt = direct ? peerRtt : serverRtt
@@ -89,20 +72,16 @@ function launchEngine() {
     reportEngine(state, detail)
     match('engine-status', { state })
     if (state === 'ready') {
-      game.mute(peerRender() ? role === 'guest' : $('mute-game').checked)
+      game.mute($('mute-game').checked)
       if (!peer && !relay) status('Game đã sẵn sàng. Đang chờ P2 vào phòng.')
     }
   })
   engine = game
 }
 function sendKeys() {
-  if (!room) return
+  if (!viewer() || !room) return
   const payload = { seq: ++inputSequence, keys: [...held] }
-  if (peerRender() && peer?.input?.readyState === 'open') {
-    if (peer.input.bufferedAmount < 16384) peer.input.send(JSON.stringify({ type: 'keys', ...payload }))
-    else pairFailed(peer, 'Kênh phím bị nghẽn')
-  } else if (!viewer()) return
-  else if (relay) match('input', payload)
+  if (relay) match('input', payload)
   else if (peer?.input?.readyState === 'open') {
     if (peer.input.bufferedAmount < 16384) peer.input.send(JSON.stringify({ type: 'keys', ...payload }))
     else pairFailed(peer, 'Kênh phím bị nghẽn')
@@ -110,10 +89,6 @@ function sendKeys() {
 }
 function releaseLocal() {
   if (!held.size) return
-  if (peerRender() && engine) {
-    const mapping = role === 'host' ? p1Keys : p2Keys
-    for (const code of held) engine.key(mapping, code, false)
-  }
   held.clear()
   sendKeys()
 }
@@ -174,12 +149,6 @@ function pairFailed(current, reason) {
   current.fallbackRequested = true
   clearTimeout(current.timeout)
   applyRemote([])
-  if (peerRender()) {
-    closePeer()
-    status('Kết nối P2P thất bại. Hãy thử lại; nếu mạng dùng NAT chặt, cần TURN.', 'error')
-    networkInfo()
-    return
-  }
   record('WebRTC → JPEG', reason)
   match('relay')
   status('Đang chuyển sang truyền hình dự phòng…')
@@ -190,9 +159,8 @@ function pairReady(current) {
   clearTimeout(current.timeout)
   if (!current.connected) {
     current.connected = true
-    status(peerRender() ? 'Đã kết nối P2P. P1 chọn Đấu đơn → Đấu 1v1.' :
-      'Đã kết nối WebRTC. P1 chọn Đấu đơn → Đấu 1v1.', 'ok')
-    if (!viewer() && !peerRender()) capVideo(current.sender, profile() === 'smooth').catch(error => record('giới hạn video', error.name))
+    status('Đã kết nối WebRTC. P1 chọn Đấu đơn → Đấu 1v1.', 'ok')
+    if (!viewer()) capVideo(current.sender, profile() === 'smooth').catch(error => record('giới hạn video', error.name))
   }
   networkInfo()
 }
@@ -223,8 +191,7 @@ async function startPair({ round, iceServers }) {
   const current = { round, candidates: [], messages: Promise.resolve() }
   peer = current
   $('retry-worker').hidden = true
-  status(central() ? 'Đang chờ máy chạy trận và kết nối hình ảnh…' :
-    peerRender() ? 'Đang mở game cục bộ và kết nối P2P…' : 'Đang kết nối hình ảnh và điều khiển…')
+  status(central() ? 'Đang chờ máy chạy trận và kết nối hình ảnh…' : 'Đang kết nối hình ảnh và điều khiển…')
   networkInfo()
   try {
     const pc = new RTCPeerConnection({ iceServers })
@@ -264,19 +231,6 @@ async function startPair({ round, iceServers }) {
     }
     const source = await engine.ready
     if (peer !== current) return
-    if (peerRender()) {
-      if (role === 'guest') {
-        pc.ondatachannel = ({ channel }) => wireInput(current, channel)
-        startDeadline(current, 30000)
-        return
-      }
-      wireInput(current, pc.createDataChannel('controls'))
-      await pc.setLocalDescription(await pc.createOffer())
-      if (peer !== current) return
-      match('signal', { description: pc.localDescription })
-      startDeadline(current)
-      return
-    }
     current.media = source.captureStream(30)
     current.sender = pc.addTrack(current.media.getVideoTracks()[0], current.media)
     wireInput(current, pc.createDataChannel('controls'))
@@ -368,50 +322,25 @@ function receive({ data }) {
       clearTimeout(reconnectTimer)
       reconnectUntil = 0
       const same = room?.id === message.id && role === message.role
-      room = { id: message.id, round, mode: message.mode, bridge: message.bridge, p2pStatus: {} }
+      room = { id: message.id, round, mode: message.mode }
       role = message.role
       saved({ type: 'resume', id: message.id, token: message.resume })
       frameChannel?.stop()
-      frameChannel = lanMode() ? null : frameLink(message.frames, paintFrame,
-        ready => record('WebSocket hình', ready ? 'sẵn sàng' : 'gián đoạn'))
+      frameChannel = frameLink(message.frames, paintFrame, ready => record('WebSocket hình', ready ? 'sẵn sàng' : 'gián đoạn'))
       $('entry').hidden = true
       $('room').hidden = false
       $('role').textContent = role === 'host' ? 'P1 · CHỦ PHÒNG' : 'P2 · KHÁCH'
       $('room-code').textContent = message.id
-      if (lanMode()) {
-        $('lan-connect-code').textContent = `${location.origin} ${message.id} ${role} ${message.bridge}`
-        $('bridge-state').textContent = 'Chưa nối cầu nối.'
-        $('lan-game-step').textContent = role === 'host' ?
-          'P1: chạy Start-Online và chờ dòng “P2P trực tiếp: P1 đã nối trực tiếp · P2 đã nối trực tiếp”; sau đó mở game → LAN → tạo phòng.' :
-          'P2: chạy Start-Online và chờ cả P1 lẫn P2 báo “đã nối trực tiếp”. Khi P1 đã tạo phòng LAN, mở game trên máy bạn → LAN → tìm phòng để vào.'
-      }
       $('profile-row').hidden = viewer()
       busy(false)
       view()
-      if (lanMode()) status('Tải gói trọn bộ, mở Start-Online và dán mã kết nối. Hai game sẽ nối trực tiếp P2P.')
-      else if (!viewer() && (!same || !engine)) {
-        status(role === 'host' ? 'Đang mở game cục bộ. Gửi ID phòng cho người chơi P2.' :
-          'Đang mở game cục bộ. Chờ P1 bắt đầu trận.')
+      if (!viewer() && (!same || !engine)) {
+        status('Đang mở game. Gửi ID Room cho bạn của bạn.')
         launchEngine()
       } else status('Đang chờ hai ghế và kết nối trận.')
       return networkInfo()
     }
-    case 'paired':
-      if (lanMode()) {
-        room.round = round
-        return status('Đã đủ hai người. Chạy Start-Online để mở kết nối P2P trực tiếp.')
-      }
-      return startPair(message)
-    case 'bridge-status':
-      if (lanMode()) $('bridge-state').textContent = `Agent: P1 ${message.host ? 'đã nối' : 'chưa nối'} · P2 ${message.guest ? 'đã nối' : 'chưa nối'}`
-      return
-    case 'p2p-status':
-      if (lanMode() && room?.round === round) {
-        room.p2pStatus[message.seat] = message.state
-        const state = seat => ({ connected: 'đã nối trực tiếp', failed: 'ICE lỗi', connecting: 'đang dò đường', closed: 'đã ngắt' }[room.p2pStatus[seat]] || 'đang chờ')
-        $('bridge-state').textContent = `P2P trực tiếp: P1 ${state('host')} · P2 ${state('guest')}`
-      }
-      return
+    case 'paired': return startPair(message)
     case 'signal': return receiveSignal(message)
     case 'relay': return startRelay(round)
     case 'input':
@@ -514,18 +443,6 @@ $('copy').onclick = async () => {
     setTimeout(() => { $('copy').textContent = 'Sao chép ID' }, 1400)
   } catch { status('Hãy bôi đen và sao chép ID Room.') }
 }
-$('copy-invite').onclick = async () => {
-  try {
-    const invite = new URL(location.href)
-    invite.searchParams.set('room', $('room-code').textContent)
-    await navigator.clipboard.writeText(invite.href)
-    status('Đã sao chép link mời. Người nhận sẽ vào thẳng phòng này.')
-  } catch { status('Không sao chép được link mời.', 'error') }
-}
-$('copy-lan-code').onclick = async () => {
-  try { await navigator.clipboard.writeText($('lan-connect-code').textContent); status('Đã sao chép mã kết nối.') }
-  catch { status('Không sao chép được; hãy chọn và sao chép mã kết nối.', 'error') }
-}
 $('fullscreen').onclick = async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen()
@@ -542,18 +459,15 @@ $('download-log').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 function keyEvent(event) {
-  if (!event.isTrusted || !role || !Object.hasOwn(p2Keys, event.code) ||
+  if (!role || !viewer() || !Object.hasOwn(p2Keys, event.code) ||
       event.ctrlKey || event.metaKey || event.altKey ||
       event.target.closest?.('input, select, button, summary, textarea, [contenteditable]')) return
-  if ((viewer() || peerRender()) && !relay && peer?.input?.readyState !== 'open') return
+  if (!relay && peer?.input?.readyState !== 'open') return
   event.preventDefault()
-  if (peerRender()) event.stopPropagation()
   if (event.type === 'keydown') {
     if (held.has(event.code)) return
     held.add(event.code)
-    if (peerRender()) engine?.key(role === 'host' ? p1Keys : p2Keys, event.code, true)
   } else if (!held.delete(event.code)) return
-  else if (peerRender()) engine?.key(role === 'host' ? p1Keys : p2Keys, event.code, false)
   sendKeys()
 }
 window.addEventListener('keydown', keyEvent, true)
@@ -565,7 +479,7 @@ window.addEventListener('error', event => record('lỗi JavaScript', event.messa
 window.addEventListener('unhandledrejection', event => record('promise lỗi', event.reason?.message))
 
 setInterval(() => {
-  if (role && (viewer() || peerRender()) && held.size) sendKeys()
+  if (role && viewer() && held.size) sendKeys()
   if (performance.now() - lastInput > 1000) applyRemote([])
 }, 250)
 let statsAt = performance.now()
@@ -575,8 +489,7 @@ setInterval(async () => {
   statsAt = now
   if (!role) return
   const current = peer
-  let metrics = peerRender() ? 'Mỗi trình duyệt tự dựng hình; WebRTC chỉ truyền phím.' :
-    'Chưa đo được FPS hoặc độ phân giải của luồng.'
+  let metrics = 'Chưa đo được FPS hoặc độ phân giải của luồng.'
   if (relay) {
     const { sent, received, lastFrame, since, width, height, encodeMs } = relay
     if (viewer()) {
@@ -618,10 +531,4 @@ setInterval(async () => {
 if (saved()) {
   reconnectUntil = Date.now() + 6000
   request(saved())
-} else {
-  const invitedRoom = new URLSearchParams(location.search).get('room')
-  if (/^[A-Z0-9]{6}$/i.test(invitedRoom ?? '')) {
-    $('room-input').value = invitedRoom.toUpperCase()
-    $('join').requestSubmit()
-  }
 }

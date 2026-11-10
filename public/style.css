@@ -8,17 +8,6 @@ h1 { margin: 5px 0 0; font-size: clamp(2.15rem, 6.3vw, 5.3rem); letter-spacing: 
 h1 em { color: var(--accent); font-size: .66em; }
 p { color: var(--muted); line-height: 1.5; }
 header p { margin: 10px 0 0; }
-.download-panel { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(270px, .85fr); gap: 22px; margin: 0 0 16px; padding: 20px; border: 1px solid #514153; border-radius: 16px; background: linear-gradient(115deg, #211823, #171722 72%); }
-.download-panel h2 { font-size: 1.2rem; }
-.download-panel p { margin: 0 0 14px; font-size: .9rem; }
-.download-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.download-card { display: grid; gap: 4px; padding: 13px; border: 1px solid #67424d; border-radius: 10px; background: #2a1d29; color: #fff3ef; text-decoration: none; }
-.download-card:hover { border-color: #ff9876; background: #352130; }
-.download-card span { color: #c5b7c4; font-size: .8rem; }
-.download-instructions { align-self: center; padding-left: 20px; border-left: 1px solid #48404e; color: #ddd6e2; font-size: .84rem; line-height: 1.45; }
-.download-instructions ol { margin: 8px 0 10px; padding-left: 20px; }
-.download-instructions li { margin: 4px 0; }
-.download-instructions small { display: block; color: #b7b4c5; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
 .arena, .panel { border: 1px solid var(--line); background: #161620; border-radius: 16px; overflow: hidden; }
 .arena-bar { display: flex; align-items: center; justify-content: space-between; padding: 9px 13px; gap: 8px; }
@@ -47,10 +36,6 @@ label { display: block; font-size: .8rem; color: var(--muted); margin: 14px 0 6p
 #status[data-tone="error"] { color: #ffc0aa; }
 #leave { margin-top: 7px; width: 100%; }
 .room-code { font: 800 1.9rem/1.5 ui-monospace, monospace; letter-spacing: .12em; }
-.lan-steps { display: grid; gap: .65rem; margin: 1rem 0; padding: 1rem; border: 1px solid #47445d; border-radius: .75rem; background: #171622; }
-.lan-steps p { margin: 0; color: #c5c2d4; font-size: .9rem; }
-.lan-steps code { display: block; overflow-wrap: anywhere; padding: .7rem; border-radius: .45rem; background: #0c0b12; font-size: .78rem; }
-.lan-steps a { color: #b5a4ff; }
 .controls p, dd { color: var(--muted); font-size: .81rem; }
 .controls p { margin: 0 0 9px; }
 .controls dl { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin: 0; }
@@ -58,8 +43,8 @@ dd { margin: 0; }
 kbd { font: 700 .73rem ui-monospace, monospace; display: inline-block; padding: 3px 4px; border: 1px solid var(--line); border-radius: 4px; }
 footer { color: var(--muted); margin-top: 16px; font-size: .8rem; }
 [hidden] { display: none !important; }
-@media (max-width: 830px) { .layout, .download-panel { grid-template-columns: minmax(0, 1fr); } .download-instructions { padding-left: 0; border-left: 0; border-top: 1px solid #48404e; padding-top: 14px; } aside { grid-row: 1; grid-template-columns: 1fr 1fr; } }
-@media (max-width: 520px) { aside, .download-links { grid-template-columns: 1fr; } }
+@media (max-width: 830px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { grid-row: 1; grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { aside { grid-template-columns: 1fr; } }
 
 .network-info { margin-top: 9px; border: 1px solid var(--line); background: #20202b; border-radius: 8px; padding: 9px; font-size: .76rem; color: var(--muted); line-height: 1.45; }
 .network-info[data-mode="direct"] { border-color: #27664c; color: #abedc9; }
